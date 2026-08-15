@@ -28,7 +28,7 @@ function ProfilePage() {
     ["Officer", session?.name ?? "—"],
     ["Badge ID", session?.investigatorId ?? "—"],
     ["Unit", session?.unit ?? "—"],
-    ["Clearance", "TIER-3 RESTRICTED" ?? "—"],
+    ["Clearance", "TIER-3 RESTRICTED"],
     ["Session opened", session ? new Date(session.at).toLocaleString() : "—"],
     ["Files accessible", String(cases.length)],
     ["Evidence records", String(allEvidence.length)],
