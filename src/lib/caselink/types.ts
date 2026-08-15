@@ -39,9 +39,9 @@ export interface Evidence {
 export interface Subject {
   name: string;
   aliases: string[];
-  age?: number;
-  phone?: string;
-  vehicle?: string;
+  age?: number | undefined;
+  phone?: string | undefined;
+  vehicle?: string | undefined;
   description?: string;
 }
 
