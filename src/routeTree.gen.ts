@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as EvidenceRouteImport } from './routes/evidence'
 import { Route as LinksRouteImport } from './routes/links'
+import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as InvestigationsIndexRouteImport } from './routes/investigations.index'
 import { Route as InvestigationsCaseIdRouteImport } from './routes/investigations.$caseId'
 import { Route as InvestigationsNewRouteImport } from './routes/investigations.new'
@@ -37,6 +38,11 @@ const LinksRoute = LinksRouteImport.update({
   path: '/links',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InvestigationsIndexRoute = InvestigationsIndexRouteImport.update({
   id: '/investigations/',
   path: '/investigations/',
@@ -58,6 +64,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRoute
   '/evidence': typeof EvidenceRoute
   '/links': typeof LinksRoute
+  '/profile': typeof ProfileRoute
   '/investigations/$caseId': typeof InvestigationsCaseIdRoute
   '/investigations/new': typeof InvestigationsNewRoute
   '/investigations/': typeof InvestigationsIndexRoute
@@ -67,6 +74,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardRoute
   '/evidence': typeof EvidenceRoute
   '/links': typeof LinksRoute
+  '/profile': typeof ProfileRoute
   '/investigations/$caseId': typeof InvestigationsCaseIdRoute
   '/investigations/new': typeof InvestigationsNewRoute
   '/investigations': typeof InvestigationsIndexRoute
@@ -77,6 +85,7 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/evidence': typeof EvidenceRoute
   '/links': typeof LinksRoute
+  '/profile': typeof ProfileRoute
   '/investigations/$caseId': typeof InvestigationsCaseIdRoute
   '/investigations/new': typeof InvestigationsNewRoute
   '/investigations/': typeof InvestigationsIndexRoute
@@ -88,6 +97,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/evidence'
     | '/links'
+    | '/profile'
     | '/investigations/$caseId'
     | '/investigations/new'
     | '/investigations/'
@@ -97,6 +107,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/evidence'
     | '/links'
+    | '/profile'
     | '/investigations/$caseId'
     | '/investigations/new'
     | '/investigations'
@@ -106,6 +117,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/evidence'
     | '/links'
+    | '/profile'
     | '/investigations/$caseId'
     | '/investigations/new'
     | '/investigations/'
@@ -116,6 +128,7 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRoute
   EvidenceRoute: typeof EvidenceRoute
   LinksRoute: typeof LinksRoute
+  ProfileRoute: typeof ProfileRoute
   InvestigationsCaseIdRoute: typeof InvestigationsCaseIdRoute
   InvestigationsNewRoute: typeof InvestigationsNewRoute
   InvestigationsIndexRoute: typeof InvestigationsIndexRoute
@@ -151,6 +164,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LinksRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/investigations/': {
       id: '/investigations/'
       path: '/investigations'
@@ -180,6 +200,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRoute,
   EvidenceRoute: EvidenceRoute,
   LinksRoute: LinksRoute,
+  ProfileRoute: ProfileRoute,
   InvestigationsCaseIdRoute: InvestigationsCaseIdRoute,
   InvestigationsNewRoute: InvestigationsNewRoute,
   InvestigationsIndexRoute: InvestigationsIndexRoute,
