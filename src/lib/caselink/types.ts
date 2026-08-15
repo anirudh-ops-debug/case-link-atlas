@@ -42,7 +42,7 @@ export interface Subject {
   age?: number | undefined;
   phone?: string | undefined;
   vehicle?: string | undefined;
-  description?: string;
+  description?: string | undefined;
 }
 
 export interface Investigation {
@@ -57,8 +57,8 @@ export interface Investigation {
   lastKnownLocation: string;
   district: string;
   notes: string;
-  modusOperandi?: string;
-  weapon?: string;
+  modusOperandi?: string | undefined;
+  weapon?: string | undefined;
   witnesses: string[];
   officer: string;
   createdAt: string;
