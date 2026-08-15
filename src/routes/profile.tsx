@@ -22,14 +22,14 @@ export const Route = createFileRoute("/profile")({
 });
 
 function ProfilePage() {
-  const { officer, cases, links, allEvidence, resetCorpus } = useCaseLink();
+  const { session, cases, links, allEvidence, resetDemo } = useCaseLink();
 
   const rows: Array<[string, string]> = [
-    ["Officer", officer?.name ?? "—"],
-    ["Badge ID", officer?.badge ?? "—"],
-    ["Unit", officer?.unit ?? "—"],
-    ["Clearance", officer?.clearance ?? "—"],
-    ["Session opened", officer ? new Date(officer.signedInAt).toLocaleString() : "—"],
+    ["Officer", session?.name ?? "—"],
+    ["Badge ID", session?.investigatorId ?? "—"],
+    ["Unit", session?.unit ?? "—"],
+    ["Clearance", "TIER-3 RESTRICTED" ?? "—"],
+    ["Session opened", session ? new Date(session.at).toLocaleString() : "—"],
     ["Files accessible", String(cases.length)],
     ["Evidence records", String(allEvidence.length)],
     ["Candidate links", String(links.length)],
@@ -63,7 +63,7 @@ function ProfilePage() {
             </p>
             <button
               onClick={() => {
-                resetCorpus();
+                resetDemo();
                 toast.success("Corpus restored to baseline demonstration state");
               }}
               className="w-full rounded-md border border-danger/40 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-danger hover:bg-danger/10"
