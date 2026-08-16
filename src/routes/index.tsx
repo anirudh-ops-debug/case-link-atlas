@@ -99,6 +99,29 @@ function LoginPage() {
             </span>
           </label>
 
+          <div className="space-y-1.5">
+            <span className="label-xs">Authorization role</span>
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+              {(Object.keys(ROLE_PERMISSIONS) as Role[]).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRole(r)}
+                  className={
+                    "rounded-sm border px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors " +
+                    (role === r
+                      ? "border-cyan/60 bg-cyan/15 text-cyan"
+                      : "border-border text-muted-foreground hover:text-foreground")
+                  }
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] leading-snug text-muted-foreground">{ROLE_NOTES[role]}</p>
+          </div>
+
+
           {error ? (
             <p className="rounded-sm border border-danger/40 bg-danger/10 px-2.5 py-1.5 font-mono text-[11px] text-danger">
               {error}
