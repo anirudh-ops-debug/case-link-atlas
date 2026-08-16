@@ -10,6 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AssistantRouteImport } from './routes/assistant'
+import { Route as AuditRouteImport } from './routes/audit'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as EvidenceRouteImport } from './routes/evidence'
 import { Route as LinksRouteImport } from './routes/links'
@@ -21,6 +23,16 @@ import { Route as InvestigationsNewRouteImport } from './routes/investigations.n
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AssistantRoute = AssistantRouteImport.update({
+  id: '/assistant',
+  path: '/assistant',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuditRoute = AuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardRoute = DashboardRouteImport.update({
@@ -61,6 +73,8 @@ const InvestigationsNewRoute = InvestigationsNewRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/assistant': typeof AssistantRoute
+  '/audit': typeof AuditRoute
   '/dashboard': typeof DashboardRoute
   '/evidence': typeof EvidenceRoute
   '/links': typeof LinksRoute
@@ -71,6 +85,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/assistant': typeof AssistantRoute
+  '/audit': typeof AuditRoute
   '/dashboard': typeof DashboardRoute
   '/evidence': typeof EvidenceRoute
   '/links': typeof LinksRoute
@@ -82,6 +98,8 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/assistant': typeof AssistantRoute
+  '/audit': typeof AuditRoute
   '/dashboard': typeof DashboardRoute
   '/evidence': typeof EvidenceRoute
   '/links': typeof LinksRoute
@@ -94,6 +112,8 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/assistant'
+    | '/audit'
     | '/dashboard'
     | '/evidence'
     | '/links'
@@ -104,6 +124,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/assistant'
+    | '/audit'
     | '/dashboard'
     | '/evidence'
     | '/links'
@@ -114,6 +136,8 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/assistant'
+    | '/audit'
     | '/dashboard'
     | '/evidence'
     | '/links'
@@ -125,6 +149,8 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AssistantRoute: typeof AssistantRoute
+  AuditRoute: typeof AuditRoute
   DashboardRoute: typeof DashboardRoute
   EvidenceRoute: typeof EvidenceRoute
   LinksRoute: typeof LinksRoute
@@ -141,6 +167,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/assistant': {
+      id: '/assistant'
+      path: '/assistant'
+      fullPath: '/assistant'
+      preLoaderRoute: typeof AssistantRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/audit': {
+      id: '/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AuditRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dashboard': {
@@ -197,6 +237,8 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AssistantRoute: AssistantRoute,
+  AuditRoute: AuditRoute,
   DashboardRoute: DashboardRoute,
   EvidenceRoute: EvidenceRoute,
   LinksRoute: LinksRoute,
