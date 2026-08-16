@@ -10,6 +10,9 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ShieldAlert,
+  Sparkles,
+  ScrollText,
+
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
@@ -23,8 +26,11 @@ const NAV = [
   { to: "/investigations/new", label: "New Investigation", icon: PlusCircle },
   { to: "/evidence", label: "Evidence Management", icon: Boxes },
   { to: "/links", label: "Cross-Case Links", icon: Network },
+  { to: "/assistant", label: "Investigator Assistant", icon: Sparkles },
+  { to: "/audit", label: "Audit Trail", icon: ScrollText },
   { to: "/profile", label: "Profile & Settings", icon: UserCog },
 ] as const;
+
 
 export function Shell({
   children,
@@ -116,7 +122,13 @@ export function Shell({
               <div className="flex items-center gap-2">
                 {actions}
                 {session ? (
+                  <span className="hidden rounded-sm border border-cyan/40 bg-cyan/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan sm:inline">
+                    {session.investigatorId} · {session.role}
+                  </span>
+                ) : null}
+                {session ? (
                   <button
+
                     onClick={() => {
                       signOut();
                       router.navigate({ to: "/" });

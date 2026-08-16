@@ -137,6 +137,31 @@ function LinksPage() {
             )}
           </section>
 
+          {link && a && b ? (
+            <>
+              <DoubleVerifyPanel
+                link={link}
+                a={a}
+                b={b}
+                onRun={() =>
+                  logAudit(
+                    "Secondary verification run",
+                    `${a.code} ↔ ${b.code}`,
+                    "Independent re-derivation of timeline, geography, MO and identifiers",
+                  )
+                }
+                onInspectEvidence={(id) => setTarget({ kind: "evidence", id })}
+              />
+              <EvidenceChainView
+                link={link}
+                a={a}
+                b={b}
+                onInspectEvidence={(id) => setTarget({ kind: "evidence", id })}
+              />
+            </>
+          ) : null}
+
+
           <section className="panel overflow-hidden">
             <SectionTitle right={<Chip>{links.length}</Chip>}>All candidates</SectionTitle>
             <div className="max-h-[300px] divide-y divide-border/60 overflow-y-auto">

@@ -83,3 +83,41 @@ export interface CaseLink {
   explanation: string;
   sharedEvidenceIds: string[];
 }
+
+/* ---------------------------------------------------------------
+ * Access control (module 14)
+ * Roles are coarse; permissions are what the UI actually checks.
+ * ------------------------------------------------------------- */
+export type Role = "ADMIN" | "SUPERVISOR" | "INVESTIGATOR" | "ANALYST" | "VIEWER";
+
+export type Permission =
+  | "case.read"
+  | "case.write"
+  | "evidence.write"
+  | "link.verify"
+  | "audit.read"
+  | "admin";
+
+/* Audit trail (module 15) — append-only in the UI. */
+export interface AuditEntry {
+  id: string;
+  at: string;
+  actor: string;
+  role: Role;
+  action: string;
+  subject: string;
+  detail: string;
+}
+
+/* Double Verify (module 8) — an independent second pass over a link. */
+export type EvidenceLayer = "AI INFERENCE" | "DIRECT EVIDENCE" | "INVESTIGATOR CONFIRMED";
+
+export interface VerifyCheck {
+  id: string;
+  label: string;
+  layer: EvidenceLayer;
+  status: "SUPPORTED" | "PARTIAL" | "UNSUPPORTED";
+  strength: "Weak" | "Moderate" | "Stronger" | "Strong";
+  detail: string;
+  sources: string[];
+}

@@ -11,15 +11,19 @@ import {
 import { SEED_CASES } from "./data";
 import { buildLinks, inferDirection } from "./matching";
 import type {
+  AuditEntry,
   CaseLink,
   Evidence,
   Investigation,
+  Permission,
+  Role,
   Verdict,
 } from "./types";
 
 const CASES_KEY = "caselink.cases.v1";
 const VERDICTS_KEY = "caselink.verdicts.v1";
 const SESSION_KEY = "caselink.session.v1";
+const AUDIT_KEY = "caselink.audit.v1";
 
 export interface FeedItem {
   id: string;
@@ -32,8 +36,26 @@ export interface Session {
   investigatorId: string;
   name: string;
   unit: string;
+  role: Role;
   at: string;
 }
+
+/** Role → permission matrix (module 14). The UI checks permissions, not roles. */
+export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
+  ADMIN: ["case.read", "case.write", "evidence.write", "link.verify", "audit.read", "admin"],
+  SUPERVISOR: ["case.read", "case.write", "evidence.write", "link.verify", "audit.read"],
+  INVESTIGATOR: ["case.read", "case.write", "evidence.write", "link.verify"],
+  ANALYST: ["case.read", "evidence.write"],
+  VIEWER: ["case.read"],
+};
+
+export const ROLE_NOTES: Record<Role, string> = {
+  ADMIN: "Full platform control, retention settings and audit export.",
+  SUPERVISOR: "Reviews and countersigns investigator verdicts; reads the audit trail.",
+  INVESTIGATOR: "Registers files, adds evidence and records link verdicts.",
+  ANALYST: "Adds and enriches evidence; may not record link verdicts.",
+  VIEWER: "Read-only situational access. No writes, no verdicts.",
+};
 
 interface Ctx {
   ready: boolean;
@@ -41,8 +63,11 @@ interface Ctx {
   links: CaseLink[];
   verdicts: Record<string, Verdict>;
   feed: FeedItem[];
+  audit: AuditEntry[];
   session: Session | null;
-  signIn: (investigatorId: string) => void;
+  can: (p: Permission) => boolean;
+  logAudit: (action: string, subject: string, detail: string) => void;
+  signIn: (investigatorId: string, role?: Role) => void;
   signOut: () => void;
   getCase: (id: string) => Investigation | undefined;
   addCase: (c: Investigation) => void;
@@ -56,6 +81,7 @@ interface Ctx {
   resetDemo: () => void;
   allEvidence: Evidence[];
 }
+
 
 const CaseLinkContext = createContext<Ctx | null>(null);
 
@@ -84,6 +110,7 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({});
   const [session, setSession] = useState<Session | null>(null);
   const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
 
   // hydrate from storage after mount (avoids SSR mismatch)
   useEffect(() => {
@@ -91,6 +118,7 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
     if (stored && Array.isArray(stored) && stored.length) setCases(stored);
     setVerdicts(read<Record<string, Verdict>>(VERDICTS_KEY, {}));
     setSession(read<Session | null>(SESSION_KEY, null));
+    setAudit(read<AuditEntry[]>(AUDIT_KEY, []));
     setReady(true);
   }, []);
 
@@ -100,6 +128,9 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (ready) write(VERDICTS_KEY, verdicts);
   }, [verdicts, ready]);
+  useEffect(() => {
+    if (ready) write(AUDIT_KEY, audit);
+  }, [audit, ready]);
 
   const log = useCallback((kind: FeedItem["kind"], text: string) => {
     setFeed((f) =>
@@ -114,6 +145,33 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
       ].slice(0, 40),
     );
   }, []);
+
+  /** Append-only audit trail entry (module 15). */
+  const logAudit = useCallback(
+    (action: string, subject: string, detail: string) => {
+      setAudit((prev) =>
+        [
+          {
+            id: `AUD-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+            at: new Date().toISOString(),
+            actor: session?.investigatorId ?? "UNAUTHENTICATED",
+            role: session?.role ?? "VIEWER",
+            action,
+            subject,
+            detail,
+          },
+          ...prev,
+        ].slice(0, 300),
+      );
+    },
+    [session],
+  );
+
+  const can = useCallback(
+    (p: Permission) => (session ? ROLE_PERMISSIONS[session.role].includes(p) : false),
+    [session],
+  );
+
 
   const links = useMemo(() => buildLinks(cases), [cases]);
 
@@ -219,8 +277,9 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
               ? "FLAGGED FOR MORE EVIDENCE"
               : "RESET TO PENDING";
       log("verdict", `Human verification — link ${id.replace("::", " ↔ ")} ${label}`);
+      logAudit("Recorded link verdict", id.replace("::", " ↔ "), `Verdict set to ${label}`);
     },
-    [log],
+    [log, logAudit],
   );
 
   const linksFor = useCallback(
@@ -229,24 +288,40 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
   );
 
   const signIn = useCallback(
-    (investigatorId: string) => {
+    (investigatorId: string, role: Role = "INVESTIGATOR") => {
       const s: Session = {
         investigatorId: investigatorId.toUpperCase(),
         name: "Insp. A. Vetrivel",
         unit: "Central Intelligence Cell · Chennai",
+        role,
         at: new Date().toISOString(),
       };
       setSession(s);
       write(SESSION_KEY, s);
-      log("system", `Secure session opened for ${s.investigatorId}`);
+      log("system", `Secure session opened for ${s.investigatorId} · ${role}`);
+      setAudit((prev) =>
+        [
+          {
+            id: `AUD-${Date.now()}-LOGIN`,
+            at: new Date().toISOString(),
+            actor: s.investigatorId,
+            role,
+            action: "Signed in",
+            subject: "Session",
+            detail: `Secure session established with ${role} authorization scope`,
+          },
+          ...prev,
+        ].slice(0, 300),
+      );
     },
     [log],
   );
 
   const signOut = useCallback(() => {
+    logAudit("Signed out", "Session", "Secure session closed");
     setSession(null);
     write(SESSION_KEY, null);
-  }, []);
+  }, [logAudit]);
 
   const resetDemo = useCallback(() => {
     setCases(SEED_CASES);
@@ -261,9 +336,13 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
       links,
       verdicts,
       feed,
+      audit,
       session,
+      can,
+      logAudit,
       signIn,
       signOut,
+
       getCase,
       addCase,
       updateCase,
@@ -282,7 +361,11 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
       links,
       verdicts,
       feed,
+      audit,
       session,
+      can,
+      logAudit,
+
       signIn,
       signOut,
       getCase,
