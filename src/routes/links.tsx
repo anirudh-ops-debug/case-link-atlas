@@ -8,6 +8,7 @@ import { Chip, ConfidenceBar, SectionTitle, VerdictBadge } from "@/components/ca
 import { DetailDrawer, type DrawerTarget } from "@/components/caselink/DetailDrawer";
 import { NetworkGraph } from "@/components/caselink/NetworkGraph";
 import { Shell } from "@/components/caselink/Shell";
+import { DoubleVerifyPanel, EvidenceChainView } from "@/components/caselink/Verification";
 import { useCaseLink } from "@/lib/caselink/store";
 
 export const Route = createFileRoute("/links")({
@@ -32,7 +33,7 @@ export const Route = createFileRoute("/links")({
 
 function LinksPage() {
   const search = Route.useSearch();
-  const { cases, links, verdicts, setVerdict, getCase } = useCaseLink();
+  const { cases, links, verdicts, setVerdict, getCase, logAudit } = useCaseLink();
   const [selectedLink, setSelectedLink] = useState<string | null>(search.link ?? null);
   const [target, setTarget] = useState<DrawerTarget | null>(null);
 
