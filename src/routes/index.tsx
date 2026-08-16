@@ -3,7 +3,8 @@ import { Fingerprint, Lock, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { TraceLogo } from "@/components/caselink/TraceLogo";
-import { useCaseLink } from "@/lib/caselink/store";
+import { ROLE_NOTES, ROLE_PERMISSIONS, useCaseLink } from "@/lib/caselink/store";
+import type { Role } from "@/lib/caselink/types";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -32,6 +33,7 @@ function LoginPage() {
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [role, setRole] = useState<Role>("INVESTIGATOR");
 
   useEffect(() => {
     if (session) void router.navigate({ to: "/dashboard" });
@@ -50,7 +52,7 @@ function LoginPage() {
     setError(null);
     setBusy(true);
     window.setTimeout(() => {
-      signIn(id.trim());
+      signIn(id.trim(), role);
       void router.navigate({ to: "/dashboard" });
     }, 900);
   };
