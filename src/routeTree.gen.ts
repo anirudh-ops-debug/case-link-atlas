@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AssistantRouteImport } from './routes/assistant'
 import { Route as AuditRouteImport } from './routes/audit'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as EngineRouteImport } from './routes/engine'
 import { Route as EvidenceRouteImport } from './routes/evidence'
 import { Route as LinksRouteImport } from './routes/links'
 import { Route as ProfileRouteImport } from './routes/profile'
@@ -38,6 +39,11 @@ const AuditRoute = AuditRouteImport.update({
 const DashboardRoute = DashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EngineRoute = EngineRouteImport.update({
+  id: '/engine',
+  path: '/engine',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EvidenceRoute = EvidenceRouteImport.update({
@@ -76,6 +82,7 @@ export interface FileRoutesByFullPath {
   '/assistant': typeof AssistantRoute
   '/audit': typeof AuditRoute
   '/dashboard': typeof DashboardRoute
+  '/engine': typeof EngineRoute
   '/evidence': typeof EvidenceRoute
   '/links': typeof LinksRoute
   '/profile': typeof ProfileRoute
@@ -88,6 +95,7 @@ export interface FileRoutesByTo {
   '/assistant': typeof AssistantRoute
   '/audit': typeof AuditRoute
   '/dashboard': typeof DashboardRoute
+  '/engine': typeof EngineRoute
   '/evidence': typeof EvidenceRoute
   '/links': typeof LinksRoute
   '/profile': typeof ProfileRoute
@@ -101,6 +109,7 @@ export interface FileRoutesById {
   '/assistant': typeof AssistantRoute
   '/audit': typeof AuditRoute
   '/dashboard': typeof DashboardRoute
+  '/engine': typeof EngineRoute
   '/evidence': typeof EvidenceRoute
   '/links': typeof LinksRoute
   '/profile': typeof ProfileRoute
@@ -115,6 +124,7 @@ export interface FileRouteTypes {
     | '/assistant'
     | '/audit'
     | '/dashboard'
+    | '/engine'
     | '/evidence'
     | '/links'
     | '/profile'
@@ -127,6 +137,7 @@ export interface FileRouteTypes {
     | '/assistant'
     | '/audit'
     | '/dashboard'
+    | '/engine'
     | '/evidence'
     | '/links'
     | '/profile'
@@ -139,6 +150,7 @@ export interface FileRouteTypes {
     | '/assistant'
     | '/audit'
     | '/dashboard'
+    | '/engine'
     | '/evidence'
     | '/links'
     | '/profile'
@@ -152,6 +164,7 @@ export interface RootRouteChildren {
   AssistantRoute: typeof AssistantRoute
   AuditRoute: typeof AuditRoute
   DashboardRoute: typeof DashboardRoute
+  EngineRoute: typeof EngineRoute
   EvidenceRoute: typeof EvidenceRoute
   LinksRoute: typeof LinksRoute
   ProfileRoute: typeof ProfileRoute
@@ -188,6 +201,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/engine': {
+      id: '/engine'
+      path: '/engine'
+      fullPath: '/engine'
+      preLoaderRoute: typeof EngineRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/evidence': {
@@ -240,6 +260,7 @@ const rootRouteChildren: RootRouteChildren = {
   AssistantRoute: AssistantRoute,
   AuditRoute: AuditRoute,
   DashboardRoute: DashboardRoute,
+  EngineRoute: EngineRoute,
   EvidenceRoute: EvidenceRoute,
   LinksRoute: LinksRoute,
   ProfileRoute: ProfileRoute,
