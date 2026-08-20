@@ -94,7 +94,7 @@ export async function runCorrelation(db: DB, actorName: string, actorId: string)
       if (error || !data) continue;
       connectionId = (data as any).id;
 
-      if (p.score >= 75) {
+      if (p.score >= 85) {
         await db.from("alerts").insert({
           kind: "strong_link",
           title: `Strong correlation detected (${p.score.toFixed(1)}%)`,
@@ -130,7 +130,7 @@ export async function runCorrelation(db: DB, actorName: string, actorId: string)
     cases: corpus.length,
     pairsEvaluated: (corpus.length * (corpus.length - 1)) / 2,
     stored,
-    strong: pairs.filter((p) => p.score >= 75).length,
+    strong: pairs.filter((p) => p.score >= 85).length,
   };
 }
 

@@ -12,7 +12,7 @@ import {
   ShieldAlert,
   Sparkles,
   ScrollText,
-
+  Cpu,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
@@ -26,6 +26,7 @@ const NAV = [
   { to: "/investigations/new", label: "New Investigation", icon: PlusCircle },
   { to: "/evidence", label: "Evidence Management", icon: Boxes },
   { to: "/links", label: "Cross-Case Links", icon: Network },
+  { to: "/engine", label: "Intelligent Matching", icon: Cpu },
   { to: "/assistant", label: "Investigator Assistant", icon: Sparkles },
   { to: "/audit", label: "Audit Trail", icon: ScrollText },
   { to: "/profile", label: "Profile & Settings", icon: UserCog },

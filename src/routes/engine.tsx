@@ -43,6 +43,15 @@ export const Route = createFileRoute("/engine")({
 
 const pct = (n: number | null) => (n == null ? "—" : `${Math.round(n * 100)}%`);
 
+interface ConnectionFactor {
+  id: string;
+  factor: string;
+  similarity: number | null;
+  weight: number;
+  insufficient_data: boolean;
+  detail: string;
+}
+
 const VERDICTS = [
   { key: "confirmed" as const, label: "Confirm link", icon: CheckCircle2, cls: "border-success/50 text-success hover:bg-success/10" },
   { key: "rejected" as const, label: "Reject", icon: CircleSlash, cls: "border-danger/50 text-danger hover:bg-danger/10" },
@@ -137,7 +146,7 @@ function EnginePage() {
           <div className="space-y-3">
             {rows.map((c) => {
               const isOpen = open === c.id;
-              const strong = c.score >= 75;
+              const strong = c.score >= 85;
               return (
                 <article key={c.id} className="panel overflow-hidden">
                   <button
@@ -189,7 +198,7 @@ function EnginePage() {
                       <p className="text-[12.5px] leading-relaxed text-muted-foreground">{c.explanation}</p>
 
                       <div className="space-y-1.5">
-                        {c.factors.map((f) => (
+                        {c.factors.map((f: ConnectionFactor) => (
                           <div key={f.id} className="rounded-sm border border-border/70 bg-surface-2/40 p-2.5">
                             <div className="flex items-center gap-2">
                               <span className="w-40 shrink-0 text-[12px]">{f.factor}</span>
