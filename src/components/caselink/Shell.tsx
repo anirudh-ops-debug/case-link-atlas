@@ -14,7 +14,7 @@ import {
   ScrollText,
   Cpu,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { TraceLogo } from "./TraceLogo";
 import { cn } from "@/lib/utils";
@@ -45,8 +45,20 @@ export function Shell({
   actions?: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const { session, signOut, cases, links } = useCaseLink();
+  const { ready, session, signOut, cases, links } = useCaseLink();
   const router = useRouter();
+
+  useEffect(() => {
+    if (ready && !session) void router.navigate({ to: "/" });
+  }, [ready, router, session]);
+
+  if (!ready || !session) {
+    return (
+      <div className="forensic-grid flex min-h-screen items-center justify-center">
+        <p className="font-mono text-xs uppercase tracking-[0.2em] text-cyan">Verifying secure session…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="forensic-grid min-h-screen">
@@ -131,8 +143,7 @@ export function Shell({
                   <button
 
                     onClick={() => {
-                      signOut();
-                      router.navigate({ to: "/" });
+                      void signOut().finally(() => router.navigate({ to: "/" }));
                     }}
                     className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:border-danger/50 hover:text-danger"
                   >

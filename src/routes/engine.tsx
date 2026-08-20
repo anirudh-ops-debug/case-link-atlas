@@ -134,6 +134,21 @@ function EnginePage() {
 
         {connections.isLoading ? (
           <p className="panel p-4 font-mono text-xs text-muted-foreground">Loading correlation layer…</p>
+        ) : connections.isError ? (
+          <div className="panel flex flex-col items-center gap-3 p-8 text-center">
+            <AlertTriangle className="size-6 text-danger" />
+            <p className="text-sm font-medium text-danger">Could not load correlations</p>
+            <p className="max-w-lg font-mono text-[11px] text-muted-foreground">
+              {connections.error instanceof Error ? connections.error.message : "Unknown request error"}
+            </p>
+            <button
+              type="button"
+              onClick={() => void connections.refetch()}
+              className="rounded-md border border-cyan/50 bg-cyan/10 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-cyan hover:bg-cyan/20"
+            >
+              Retry
+            </button>
+          </div>
         ) : rows.length === 0 ? (
           <div className="panel flex flex-col items-center gap-3 p-10 text-center">
             <Activity className="size-6 text-cyan" />
