@@ -6,14 +6,13 @@ import { toast } from "sonner";
 import { Chip, EVIDENCE_COLOR, fmtDateTime } from "@/components/caselink/bits";
 import { Shell } from "@/components/caselink/Shell";
 import { CASE_TYPES, EVIDENCE_TYPES, LOCATION_PRESETS, PRIORITIES } from "@/lib/caselink/data";
-import { compareCases } from "@/lib/caselink/matching";
 import { useCaseLink } from "@/lib/caselink/store";
+import type { CreateInvestigationInput } from "@/lib/caselink/investigations.repository";
 import type {
   CaseType,
   Evidence,
   EvidenceStage,
   EvidenceType,
-  Investigation,
   Priority,
 } from "@/lib/caselink/types";
 import { cn } from "@/lib/utils";
@@ -40,6 +39,8 @@ export const Route = createFileRoute("/investigations/new")({
 const STEPS = ["Subject", "Incident", "Evidence", "Review"] as const;
 
 interface Draft {
+  caseNo: string;
+  firNumber: string;
   name: string;
   aliases: string;
   age: string;
@@ -56,6 +57,8 @@ interface Draft {
 }
 
 const emptyDraft: Draft = {
+  caseNo: "",
+  firNumber: "",
   name: "",
   aliases: "",
   age: "",
@@ -76,7 +79,7 @@ interface DraftEvidence extends Evidence {
 }
 
 export default function NewInvestigationPage() {
-  const { cases, addCase } = useCaseLink();
+  const { cases, createInvestigation } = useCaseLink();
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
@@ -87,7 +90,6 @@ export default function NewInvestigationPage() {
   const [evLocation, setEvLocation] = useState(LOCATION_PRESETS[0]!.name);
   const [evWhen, setEvWhen] = useState(new Date().toISOString().slice(0, 16));
   const [evDetails, setEvDetails] = useState("");
-  const [evReliability, setEvReliability] = useState(75);
   const [submitting, setSubmitting] = useState(false);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) =>
@@ -98,6 +100,8 @@ export default function NewInvestigationPage() {
 
   const validate = (target: number) => {
     const errs: string[] = [];
+    if (target >= 1 && draft.caseNo.trim().length < 3)
+      errs.push("Case number must be at least 3 characters.");
     if (target >= 1 && draft.name.trim().length < 3)
       errs.push("Subject name must be at least 3 characters.");
     if (target >= 2) {
@@ -109,7 +113,7 @@ export default function NewInvestigationPage() {
     return errs.length === 0;
   };
 
-  const caseId = `CL-${String(2600 + cases.length * 7).slice(0, 4)}`;
+  const draftLabel = draft.caseNo.trim() || "Unnumbered draft";
 
   const addEvidenceRow = () => {
     if (evLabel.trim().length < 3) {
@@ -118,105 +122,126 @@ export default function NewInvestigationPage() {
     }
     const preset =
       LOCATION_PRESETS.find((p) => p.name === evLocation) ?? LOCATION_PRESETS[0]!;
-    const id = `${caseId}-E${String(evidence.length + 1).padStart(2, "0")}`;
+    const id = `DRAFT-E${String(evidence.length + 1).padStart(2, "0")}`;
     const row: DraftEvidence = {
       id,
-      caseId,
+      caseId: "pending-database-case",
       type: evType,
       label: evLabel.trim(),
-      source: `Synthetic intake ${evType.toUpperCase()}-${id}`,
+      source: "Metadata intake; file storage not configured",
       timestamp: new Date(evWhen).toISOString(),
       locationName: preset.name,
       lat: preset.lat,
       lng: preset.lng,
-      reliability: evReliability,
+      reliability: null,
       details: evDetails.trim() || `${evType} record submitted during intake.`,
-      interpretation: `${evType} evidence anchors the subject to ${preset.name}; weighting applied at ${evReliability}% source reliability.`,
+      interpretation: "Metadata only. No evidence file has been uploaded or stored.",
       keywords: [
         ...(draft.vehicle ? [draft.vehicle] : []),
         ...(draft.phone ? [draft.phone] : []),
         evType.toLowerCase(),
         preset.name.split(",")[0]!.toLowerCase(),
       ],
-      stage: "PROCESSING",
+      stage: "INDEXED",
     };
     setEvidence((prev) => [...prev, row]);
     setEvLabel("");
     setEvDetails("");
-    window.setTimeout(
-      () =>
-        setEvidence((prev) => prev.map((e) => (e.id === id ? { ...e, stage: "INDEXED" } : e))),
-      850,
-    );
-    window.setTimeout(
-      () =>
-        setEvidence((prev) => prev.map((e) => (e.id === id ? { ...e, stage: "CORRELATED" } : e))),
-      1800,
-    );
   };
 
-  const buildCase = (): Investigation => ({
-    id: caseId,
-    code: caseId,
-    title:
-      draft.type === "Missing Person"
-        ? `Disappearance of ${draft.name.trim()}`
-        : `${draft.type} — ${draft.location}`,
-    type: draft.type,
-    priority: draft.priority,
-    status: "Active",
-    subject: {
-      name: draft.name.trim(),
-      aliases: draft.aliases
+  const buildInput = (): CreateInvestigationInput => {
+    const incidentLocation = LOCATION_PRESETS.find((preset) => preset.name === draft.location) ?? null;
+    return {
+      caseNo: draft.caseNo.trim(),
+      firNumber: draft.firNumber.trim() || null,
+      title:
+        draft.type === "Missing Person"
+          ? `Disappearance of ${draft.name.trim()}`
+          : `${draft.type} — ${draft.location}`,
+      crimeType: draft.type,
+      description: draft.notes.trim() || null,
+      occurredAt: new Date(draft.date).toISOString(),
+      location: incidentLocation
+        ? { name: incidentLocation.name, latitude: incidentLocation.lat, longitude: incidentLocation.lng }
+        : null,
+      status: "Active",
+      priority: draft.priority,
+      tags: Array.from(new Set([draft.type, ...evidence.flatMap((item) => item.keywords)])),
+      modusOperandi: draft.modus.trim() ? [draft.modus.trim()] : [],
+      notes: draft.notes.trim() || null,
+      isSynthetic: true,
+      subject: {
+        fullName: draft.name.trim(),
+        aliases: draft.aliases
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        age: draft.age ? Number(draft.age) : null,
+        phone: draft.phone.trim() || null,
+        description: null,
+      },
+      vehicle: draft.vehicle.trim() || null,
+      witnessNames: draft.witnesses
         .split(",")
-        .map((s) => s.trim())
+        .map((name) => name.trim())
         .filter(Boolean),
-      age: draft.age ? Number(draft.age) : undefined,
-      phone: draft.phone.trim() || undefined,
-      vehicle: draft.vehicle.trim() || undefined,
-    },
-    incidentDate: new Date(draft.date).toISOString(),
-    lastKnownLocation: draft.location,
-    district: draft.location.includes("Chengalpattu") || draft.location.includes("Kanchipuram")
-      ? "Chengalpattu Rural"
-      : "Chennai Central",
-    notes: draft.notes.trim() || "No additional narrative supplied at intake.",
-    modusOperandi: draft.modus.trim() || undefined,
-    weapon: draft.weapon.trim() || undefined,
-    witnesses: draft.witnesses
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-    officer: "Insp. A. Vetrivel",
-    createdAt: new Date().toISOString(),
-    evidence: evidence.map((e) => ({ ...e, stage: "CORRELATED" as EvidenceStage })),
-  });
+      weapon: draft.weapon.trim() || null,
+      evidence: evidence.map((item) => ({
+        category: item.type,
+        label: item.label,
+        description: item.details || null,
+        collectedAt: item.timestamp,
+        latitude: item.lat,
+        longitude: item.lng,
+      })),
+    };
+  };
 
-  const submit = () => {
+  const submit = async () => {
+    if (submitting) return;
     if (!validate(2)) {
       setStep(0);
       return;
     }
     setSubmitting(true);
-    const built = buildCase();
-    const matches = cases
-      .map((c) => ({ c, r: compareCases(built, c) }))
-      .filter((m) => m.r.confidence >= 22 && m.r.reasons.length >= 2)
-      .sort((a, b) => b.r.confidence - a.r.confidence);
-
-    window.setTimeout(() => {
-      addCase(built);
-      toast.success(`${built.code} registered`, {
-        description: matches.length
-          ? `${matches.length} candidate cross-case link(s) generated — strongest ${matches[0]!.c.code} at ${matches[0]!.r.confidence}%.`
-          : "No correlations crossed the reporting threshold yet.",
-      });
-      void router.navigate({ to: "/investigations/$caseId", params: { caseId: built.id } });
-    }, 900);
+    setErrors([]);
+    try {
+      const result = await createInvestigation(buildInput());
+      const runMatching = {
+        label: "Run matching",
+        onClick: () => void router.navigate({ to: "/engine" }),
+      };
+      if (result.childFailures.length) {
+        toast.warning(`${result.caseNo} created with incomplete related data`, {
+          description: result.childFailures.join(" · "),
+          action: runMatching,
+        });
+      } else {
+        toast.success(`${result.caseNo} created in Supabase`, {
+          description: "Run Intelligent Matching to evaluate the new database case.",
+          action: runMatching,
+        });
+      }
+      if (result.auditError) {
+        toast.warning("Case created, but its audit record failed", { description: result.auditError });
+      }
+      if (result.reloadError) {
+        toast.warning("Case created, but the database register could not be reloaded", {
+          description: result.reloadError,
+        });
+      }
+      void router.navigate({ to: "/investigations/$caseId", params: { caseId: result.caseId } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Investigation creation failed.";
+      setErrors([message]);
+      toast.error("Investigation was not created", { description: message });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <Shell title="New Investigation" subtitle={`Draft file ${caseId}`}>
+    <Shell title="New Investigation" subtitle={`Database intake · ${draftLabel}`}>
       <div className="panel mb-3 flex items-center gap-2 overflow-x-auto p-2.5">
         {STEPS.map((s, i) => (
           <button
@@ -249,6 +274,12 @@ export default function NewInvestigationPage() {
       <div className="panel space-y-4 p-4">
         {step === 0 ? (
           <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Case number *">
+              <input className={input} value={draft.caseNo} onChange={(e) => set("caseNo", e.target.value)} />
+            </Field>
+            <Field label="FIR number">
+              <input className={input} value={draft.firNumber} onChange={(e) => set("firNumber", e.target.value)} />
+            </Field>
             <Field label="Subject name *">
               <input className={input} value={draft.name} onChange={(e) => set("name", e.target.value)} />
             </Field>
@@ -372,15 +403,10 @@ export default function NewInvestigationPage() {
                   onChange={(e) => setEvWhen(e.target.value)}
                 />
               </Field>
-              <Field label={`Source reliability · ${evReliability}%`}>
-                <input
-                  type="range"
-                  min={10}
-                  max={99}
-                  value={evReliability}
-                  onChange={(e) => setEvReliability(Number(e.target.value))}
-                  className="w-full accent-[var(--cyan)]"
-                />
+              <Field label="Source reliability">
+                <p className="rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                  Not recorded by the current database schema
+                </p>
               </Field>
               <Field label="Detail">
                 <input className={input} value={evDetails} onChange={(e) => setEvDetails(e.target.value)} />
@@ -390,14 +416,13 @@ export default function NewInvestigationPage() {
               onClick={addEvidenceRow}
               className="flex items-center gap-1.5 rounded-md border border-cyan/50 bg-cyan/15 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:bg-cyan/25"
             >
-              <Plus className="size-3" /> Upload evidence
+              <Plus className="size-3" /> Add evidence metadata
             </button>
 
             <div className="space-y-2">
               {evidence.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground">
-                  No evidence attached yet. Files can also be added later from the investigation
-                  workspace.
+                  No evidence metadata added. Evidence file storage is not configured in this phase.
                 </p>
               ) : (
                 evidence.map((e) => (
@@ -449,10 +474,9 @@ export default function NewInvestigationPage() {
             <Review label="Evidence attached" value={`${evidence.length} record(s)`} />
             <Review label="Witnesses" value={draft.witnesses || "none"} />
             <div className="md:col-span-2 rounded-md border border-cyan/25 bg-cyan/[0.06] p-3 text-[12px] leading-relaxed text-muted-foreground">
-              On submission CASELINK compares this file against all {cases.length} existing files
-              across names, aliases, handsets, vehicles, coordinates, time windows, witnesses,
-              weapons, modus operandi and keywords, then produces explainable confidence scores for
-              human verification.
+              Submission writes this investigation to Supabase. It does not generate or claim a
+              connection score. After creation, run Intelligent Matching to evaluate it against the
+              {` ${cases.length}`} existing database files.
             </div>
           </div>
         ) : null}
@@ -476,11 +500,11 @@ export default function NewInvestigationPage() {
             </button>
           ) : (
             <button
-              onClick={submit}
+              onClick={() => void submit()}
               disabled={submitting}
               className="rounded-md border border-success/50 bg-success/15 px-4 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-success hover:bg-success/25 disabled:opacity-60"
             >
-              {submitting ? "Correlating…" : "Register & correlate"}
+              {submitting ? "Saving to Supabase…" : "Create investigation"}
             </button>
           )}
         </div>

@@ -11,7 +11,12 @@ import type { User } from "@supabase/supabase-js";
 
 import { supabase } from "@/integrations/supabase/client";
 
-import { loadInvestigations } from "./investigations.repository";
+import {
+  createInvestigation as createDatabaseInvestigation,
+  loadInvestigations,
+  type CreateInvestigationInput,
+  type CreateInvestigationResult,
+} from "./investigations.repository";
 import { inferDirection } from "./matching";
 import type {
   AuditEntry,
@@ -87,6 +92,9 @@ interface Ctx {
   signUp: (email: string, password: string, role: DatabaseRole) => Promise<{ requiresEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
   clearAuthError: () => void;
+  createInvestigation: (
+    input: CreateInvestigationInput,
+  ) => Promise<CreateInvestigationResult & { reloadError: string | null }>;
   getCase: (id: string) => Investigation | undefined;
   addCase: (c: Investigation) => void;
   updateCase: (id: string, patch: Partial<Investigation>) => void;
@@ -231,17 +239,20 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
     };
   }, [establishSession]);
 
-  const fetchCases = useCallback(async () => {
+  const fetchCases = useCallback(async (): Promise<string | null> => {
     setCasesLoading(true);
     setCasesError(null);
     try {
       const result = await loadInvestigations(supabase);
       setCases(result.cases);
       setDatabaseLinks(result.links);
+      return null;
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load investigations.";
       setCases([]);
       setDatabaseLinks([]);
-      setCasesError(error instanceof Error ? error.message : "Unable to load investigations.");
+      setCasesError(message);
+      return message;
     } finally {
       setCasesLoading(false);
     }
@@ -467,6 +478,19 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
 
   const clearAuthError = useCallback(() => setAuthError(null), []);
 
+  const createInvestigation = useCallback(async (input: CreateInvestigationInput) => {
+    if (!session) throw new Error("You must be signed in to create an investigation.");
+    if (!ROLE_PERMISSIONS[session.role].includes("case.write")) {
+      throw new Error("Your assigned role is not permitted to create investigations.");
+    }
+    const result = await createDatabaseInvestigation(supabase, input, {
+      userId: session.userId,
+      name: session.name,
+    });
+    const reloadError = await fetchCases();
+    return { ...result, reloadError };
+  }, [fetchCases, session]);
+
   const resetDemo = useCallback(() => {
     setVerdicts({});
     void fetchCases();
@@ -492,6 +516,7 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
       signUp,
       signOut,
       clearAuthError,
+      createInvestigation,
 
       getCase,
       addCase,
@@ -524,6 +549,7 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
       signUp,
       signOut,
       clearAuthError,
+      createInvestigation,
       getCase,
       addCase,
       updateCase,

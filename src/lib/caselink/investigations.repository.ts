@@ -19,6 +19,57 @@ export interface InvestigationRepositoryResult {
   links: CaseLink[];
 }
 
+export interface CreateInvestigationInput {
+  caseNo: string;
+  firNumber: string | null;
+  title: string;
+  crimeType: string;
+  description: string | null;
+  occurredAt: string;
+  location: { name: string; latitude: number; longitude: number } | null;
+  status: "Active" | "Under Review" | "Escalated" | "Closed";
+  priority: "Critical" | "High" | "Medium" | "Low";
+  tags: string[];
+  modusOperandi: string[];
+  notes: string | null;
+  isSynthetic: boolean;
+  subject: {
+    fullName: string;
+    aliases: string[];
+    age: number | null;
+    phone: string | null;
+    description: string | null;
+  };
+  vehicle: string | null;
+  witnessNames: string[];
+  weapon: string | null;
+  evidence: Array<{
+    category: string;
+    label: string;
+    description: string | null;
+    collectedAt: string;
+    latitude: number | null;
+    longitude: number | null;
+  }>;
+}
+
+export interface CreateInvestigationActor {
+  userId: string;
+  name: string;
+}
+
+export interface CreateInvestigationResult {
+  caseId: string;
+  caseNo: string;
+  childFailures: string[];
+  auditError: string | null;
+}
+
+interface ChildWrite {
+  label: string;
+  run: () => Promise<{ error: { message: string } | null }>;
+}
+
 function groupByCase<T extends { case_id: string }>(rows: T[]): Map<string, T[]> {
   const grouped = new Map<string, T[]>();
   for (const row of rows) grouped.set(row.case_id, [...(grouped.get(row.case_id) ?? []), row]);
@@ -217,5 +268,197 @@ export async function loadInvestigations(
       ),
     ),
     links: (connections.data ?? []).map(mapConnection),
+  };
+}
+
+export async function createInvestigation(
+  client: SupabaseClient<Database>,
+  input: CreateInvestigationInput,
+  actor: CreateInvestigationActor,
+): Promise<CreateInvestigationResult> {
+  const { data: createdCase, error: caseError } = await client
+    .from("cases")
+    .insert({
+      case_no: input.caseNo,
+      fir_number: input.firNumber,
+      title: input.title,
+      crime_type: input.crimeType,
+      description: input.description,
+      occurred_at: input.occurredAt,
+      location_name: input.location?.name ?? null,
+      latitude: input.location?.latitude ?? null,
+      longitude: input.location?.longitude ?? null,
+      investigator_id: actor.userId,
+      investigator_name: actor.name,
+      status: input.status,
+      priority: input.priority,
+      tags: input.tags,
+      modus_operandi: input.modusOperandi,
+      notes: input.notes,
+      is_synthetic: input.isSynthetic,
+    })
+    .select("id, case_no")
+    .single();
+
+  if (caseError || !createdCase) {
+    throw new Error(caseError?.message ?? "The investigation could not be created.");
+  }
+
+  const caseId = createdCase.id;
+  const childWrites: ChildWrite[] = [
+    {
+      label: "primary subject",
+      run: async () => {
+        const { error } = await client.from("persons").insert({
+          case_id: caseId,
+          full_name: input.subject.fullName,
+          aliases: input.subject.aliases,
+          role_in_case: "subject",
+          age: input.subject.age,
+          phone: input.subject.phone,
+          description: input.subject.description,
+          descriptors: [],
+        });
+        return { error };
+      },
+    },
+    {
+      label: "initial timeline event",
+      run: async () => {
+        const { error } = await client.from("timeline_events").insert({
+          case_id: caseId,
+          kind: "Incident",
+          occurred_at: input.occurredAt,
+          title: "Investigation incident recorded",
+          detail: input.description,
+          latitude: input.location?.latitude ?? null,
+          longitude: input.location?.longitude ?? null,
+        });
+        return { error };
+      },
+    },
+  ];
+
+  if (input.vehicle) {
+    childWrites.push({
+      label: "vehicle",
+      run: async () => {
+        const { error } = await client.from("vehicles").insert({
+          case_id: caseId,
+          make_model: input.vehicle,
+          notes: "Vehicle description supplied during investigation intake.",
+        });
+        return { error };
+      },
+    });
+  }
+
+  if (input.location) {
+    const location = input.location;
+    childWrites.push({
+      label: "incident location",
+      run: async () => {
+        const { error } = await client.from("locations").insert({
+          case_id: caseId,
+          name: location.name,
+          kind: "Incident location",
+          latitude: location.latitude,
+          longitude: location.longitude,
+        });
+        return { error };
+      },
+    });
+  }
+
+  if (input.evidence.length) {
+    childWrites.push({
+      label: "evidence metadata",
+      run: async () => {
+        const { error } = await client.from("evidence").insert(
+          input.evidence.map((item) => ({
+            case_id: caseId,
+            category: item.category,
+            filename: item.label,
+            description: [item.description, "Metadata-only record; evidence file storage is not configured."]
+              .filter(Boolean)
+              .join(" "),
+            status: "Indexed",
+            storage_path: null,
+            mime_type: null,
+            latitude: item.latitude,
+            longitude: item.longitude,
+            collected_at: item.collectedAt,
+            uploaded_by: actor.userId,
+            uploaded_by_name: actor.name,
+          })),
+        );
+        return { error };
+      },
+    });
+  }
+
+  if (input.witnessNames.length) {
+    childWrites.push({
+      label: "witnesses",
+      run: async () => {
+        const { error } = await client.from("witnesses").insert(
+          input.witnessNames.map((name) => ({ case_id: caseId, name, descriptors: [] })),
+        );
+        return { error };
+      },
+    });
+  }
+
+  if (input.weapon) {
+    const weapon = input.weapon;
+    childWrites.push({
+      label: "weapon",
+      run: async () => {
+        const { error } = await client.from("weapons").insert({
+          case_id: caseId,
+          weapon_type: weapon,
+          description: "Weapon or tool description supplied during investigation intake.",
+        });
+        return { error };
+      },
+    });
+  }
+
+  const childResults = await Promise.all(
+    childWrites.map(async (write) => {
+      try {
+        return { label: write.label, result: await write.run() };
+      } catch (error) {
+        return {
+          label: write.label,
+          result: { error: { message: error instanceof Error ? error.message : "request failed" } },
+        };
+      }
+    }),
+  );
+  const childFailures = childResults
+    .filter(({ result }) => result.error != null)
+    .map(({ label, result }) => `${label}: ${result.error?.message ?? "unknown error"}`);
+
+  let auditError: string | null = null;
+  try {
+    const { error: auditFailure } = await client.from("audit_logs").insert({
+      actor_id: actor.userId,
+      actor_name: actor.name,
+      action_type: "case_creation",
+      action: "Created investigation",
+      case_id: caseId,
+      detail: `Created synthetic investigation ${createdCase.case_no} through authenticated intake.`,
+    });
+    auditError = auditFailure?.message ?? null;
+  } catch (error) {
+    auditError = error instanceof Error ? error.message : "Audit request failed.";
+  }
+
+  return {
+    caseId,
+    caseNo: createdCase.case_no,
+    childFailures,
+    auditError,
   };
 }
