@@ -11,8 +11,8 @@ import type { User } from "@supabase/supabase-js";
 
 import { supabase } from "@/integrations/supabase/client";
 
-import { SEED_CASES } from "./data";
-import { buildLinks, inferDirection } from "./matching";
+import { loadInvestigations } from "./investigations.repository";
+import { inferDirection } from "./matching";
 import type {
   AuditEntry,
   CaseLink,
@@ -23,7 +23,6 @@ import type {
   Verdict,
 } from "./types";
 
-const CASES_KEY = "caselink.cases.v1";
 const VERDICTS_KEY = "caselink.verdicts.v1";
 const ROLE_SELECTION_KEY = "caselink.auth-role.v1";
 const AUDIT_KEY = "caselink.audit.v1";
@@ -73,6 +72,9 @@ export const ROLE_NOTES: Record<Role, string> = {
 interface Ctx {
   ready: boolean;
   authError: string | null;
+  casesLoading: boolean;
+  casesError: string | null;
+  retryCases: () => void;
   cases: Investigation[];
   links: CaseLink[];
   verdicts: Record<string, Verdict>;
@@ -166,7 +168,10 @@ async function loadVerifiedSession(user: User, selectedRole?: DatabaseRole): Pro
 export function CaseLinkProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [cases, setCases] = useState<Investigation[]>(SEED_CASES);
+  const [cases, setCases] = useState<Investigation[]>([]);
+  const [databaseLinks, setDatabaseLinks] = useState<CaseLink[]>([]);
+  const [casesLoading, setCasesLoading] = useState(false);
+  const [casesError, setCasesError] = useState<string | null>(null);
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({});
   const [session, setSession] = useState<Session | null>(null);
   const [feed, setFeed] = useState<FeedItem[]>([]);
@@ -188,10 +193,8 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Hydrate local demo data and restore the real Supabase session after mount.
+  // Hydrate non-case local modules and restore the real Supabase session after mount.
   useEffect(() => {
-    const stored = read<Investigation[] | null>(CASES_KEY, null);
-    if (stored && Array.isArray(stored) && stored.length) setCases(stored);
     setVerdicts(read<Record<string, Verdict>>(VERDICTS_KEY, {}));
     setAudit(read<AuditEntry[]>(AUDIT_KEY, []));
 
@@ -228,9 +231,36 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
     };
   }, [establishSession]);
 
+  const fetchCases = useCallback(async () => {
+    setCasesLoading(true);
+    setCasesError(null);
+    try {
+      const result = await loadInvestigations(supabase);
+      setCases(result.cases);
+      setDatabaseLinks(result.links);
+    } catch (error) {
+      setCases([]);
+      setDatabaseLinks([]);
+      setCasesError(error instanceof Error ? error.message : "Unable to load investigations.");
+    } finally {
+      setCasesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (ready) write(CASES_KEY, cases);
-  }, [cases, ready]);
+    if (session) {
+      void fetchCases();
+    } else {
+      setCases([]);
+      setDatabaseLinks([]);
+      setCasesError(null);
+      setCasesLoading(false);
+    }
+  }, [fetchCases, session]);
+
+  const retryCases = useCallback(() => {
+    if (session) void fetchCases();
+  }, [fetchCases, session]);
   useEffect(() => {
     if (ready) write(VERDICTS_KEY, verdicts);
   }, [verdicts, ready]);
@@ -279,7 +309,7 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
   );
 
 
-  const links = useMemo(() => buildLinks(cases), [cases]);
+  const links = databaseLinks;
 
   const allEvidence = useMemo(() => cases.flatMap((c) => c.evidence), [cases]);
 
@@ -438,15 +468,18 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
   const clearAuthError = useCallback(() => setAuthError(null), []);
 
   const resetDemo = useCallback(() => {
-    setCases(SEED_CASES);
     setVerdicts({});
-    log("system", "Synthetic dataset restored to baseline");
-  }, [log]);
+    void fetchCases();
+    log("system", "Database-backed synthetic dataset reloaded");
+  }, [fetchCases, log]);
 
   const value = useMemo<Ctx>(
     () => ({
       ready,
       authError,
+      casesLoading,
+      casesError,
+      retryCases,
       cases,
       links,
       verdicts,
@@ -475,6 +508,9 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
     [
       ready,
       authError,
+      casesLoading,
+      casesError,
+      retryCases,
       cases,
       links,
       verdicts,

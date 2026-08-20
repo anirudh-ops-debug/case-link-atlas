@@ -70,18 +70,26 @@ export function DetailDrawer({
           {evidence ? (
             <>
               <dl className="grid grid-cols-2 gap-3">
-                <Field label="Source" value={evidence.source} />
+                <Field label="Source" value={evidence.source || "Not recorded"} />
                 <Field label="Timestamp" value={fmtDateTime(evidence.timestamp)} />
-                <Field label="Location" value={evidence.locationName} />
+                <Field label="Location" value={evidence.locationName || "Not recorded"} />
                 <Field
                   label="Coordinates"
-                  value={`${evidence.lat.toFixed(4)}, ${evidence.lng.toFixed(4)}`}
+                  value={
+                    evidence.lat != null && evidence.lng != null
+                      ? `${evidence.lat.toFixed(4)}, ${evidence.lng.toFixed(4)}`
+                      : "Not recorded"
+                  }
                 />
                 <Field label="Stage" value={evidence.stage} />
                 <Field label="Case file" value={evidence.caseId} />
               </dl>
 
-              <ConfidenceBar label="Source reliability" value={evidence.reliability} />
+              {evidence.reliability != null ? (
+                <ConfidenceBar label="Source reliability" value={evidence.reliability} />
+              ) : (
+                <p className="label-xs">Source reliability · not recorded</p>
+              )}
 
               <Block title="Recorded detail">{evidence.details}</Block>
               <Block title="AI interpretation">{evidence.interpretation}</Block>
@@ -136,11 +144,11 @@ export function DetailDrawer({
                 </div>
                 <p className="mt-1 text-sm font-medium text-foreground">{investigation.title}</p>
                 <dl className="mt-2 grid grid-cols-2 gap-3">
-                  <Field label="Subject" value={investigation.subject.name} />
+                  <Field label="Subject" value={investigation.subject.name || "Not recorded"} />
                   <Field label="Status" value={investigation.status} />
                   <Field label="Incident" value={fmtDateTime(investigation.incidentDate)} />
-                  <Field label="Last known" value={investigation.lastKnownLocation} />
-                  <Field label="Officer" value={investigation.officer} />
+                  <Field label="Last known" value={investigation.lastKnownLocation || "Not recorded"} />
+                  <Field label="Officer" value={investigation.officer || "Not recorded"} />
                   <Field label="Evidence" value={`${investigation.evidence.length} records`} />
                 </dl>
                 {investigation.subject.aliases.length ? (

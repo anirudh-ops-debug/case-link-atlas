@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Plus, Search, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Chip, EVIDENCE_COLOR, SectionTitle, fmtDateTime } from "@/components/caselink/bits";
@@ -41,6 +41,11 @@ function EvidencePage() {
   const [location, setLocation] = useState(LOCATION_PRESETS[0]!.name);
   const [when, setWhen] = useState(new Date().toISOString().slice(0, 16));
   const [reliability, setReliability] = useState(78);
+  const selectedCase = cases.find((item) => item.id === caseId);
+
+  useEffect(() => {
+    if (!caseId && cases[0]) setCaseId(cases[0].id);
+  }, [caseId, cases]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -63,6 +68,10 @@ function EvidencePage() {
     const parent = cases.find((c) => c.id === caseId);
     if (!parent) {
       toast.error("Select a valid case file first.");
+      return;
+    }
+    if (parent.isDatabaseBacked) {
+      toast.error("Database evidence uploads are not implemented in this read-only phase.");
       return;
     }
     if (label.trim().length < 3) {
@@ -142,13 +151,18 @@ function EvidencePage() {
                   >
                     <p className="truncate text-[12px] text-foreground">{e.label}</p>
                     <p className="truncate font-mono text-[10px] text-muted-foreground">
-                      {e.caseId} · {e.id} · {e.locationName} · {fmtDateTime(e.timestamp)} ·{" "}
-                      {e.reliability}%
+                      {e.caseId} · {e.id} · {e.locationName || "Location not recorded"} · {fmtDateTime(e.timestamp)} ·{" "}
+                      {e.reliability == null ? "Reliability not recorded" : `${e.reliability}%`}
                     </p>
                   </button>
                   <Chip tone={e.stage === "CORRELATED" ? "success" : e.stage === "INDEXED" ? "cyan" : "amber"}>
                     {e.stage}
                   </Chip>
+                  {cases.find((item) => item.id === e.caseId)?.isDatabaseBacked ? (
+                    <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+                      Read only
+                    </span>
+                  ) : (
                   <button
                     onClick={() => {
                       deleteEvidence(e.caseId, e.id);
@@ -159,6 +173,7 @@ function EvidencePage() {
                   >
                     <Trash2 className="size-3.5" />
                   </button>
+                  )}
                 </div>
               ))
             )}
@@ -218,13 +233,15 @@ function EvidencePage() {
             </label>
             <button
               onClick={submit}
-              className="flex w-full items-center justify-center gap-1.5 rounded-md border border-cyan/50 bg-cyan/15 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:bg-cyan/25"
+              disabled={selectedCase?.isDatabaseBacked}
+              className="flex w-full items-center justify-center gap-1.5 rounded-md border border-cyan/50 bg-cyan/15 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:bg-cyan/25 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Plus className="size-3" /> Process & correlate
+              <Plus className="size-3" /> {selectedCase?.isDatabaseBacked ? "Database uploads unavailable" : "Process & correlate"}
             </button>
             <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Every intake runs PROCESSING → INDEXED → CORRELATED, then recomputes dashboard
-              metrics, the timeline, the map, AI inference and the cross-case graph.
+              {selectedCase?.isDatabaseBacked
+                ? "Database evidence uploads will be implemented in a separate write-enabled phase."
+                : "Local intake runs PROCESSING → INDEXED → CORRELATED for this browser session."}
             </p>
           </div>
         </section>

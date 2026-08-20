@@ -76,7 +76,7 @@ export function Timeline({
                     </span>
                     <span className="mt-0.5 block truncate text-[13px] text-foreground">{e.label}</span>
                     <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                      {e.locationName} · reliability {e.reliability}% · {e.id}
+                      {e.locationName || "Location not recorded"} · reliability {e.reliability == null ? "not recorded" : `${e.reliability}%`} · {e.id}
                     </span>
                   </span>
                 </button>

@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Search, Trash2 } from "lucide-react";
+import { AlertTriangle, Database, RefreshCw, Search, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -28,10 +28,11 @@ export const Route = createFileRoute("/investigations/")({
 });
 
 function InvestigationsPage() {
-  const { ready, cases, links, deleteCase } = useCaseLink();
+  const { cases, casesError, casesLoading, retryCases, links, deleteCase } = useCaseLink();
   const [q, setQ] = useState("");
   const [type, setType] = useState("all");
   const [priority, setPriority] = useState("all");
+  const caseTypes = useMemo(() => Array.from(new Set([...CASE_TYPES, ...cases.map((item) => item.type)])), [cases]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -84,7 +85,7 @@ function InvestigationsPage() {
         </span>
         <select value={type} onChange={(e) => setType(e.target.value)} className={select}>
           <option value="all">All case types</option>
-          {CASE_TYPES.map((t) => (
+          {caseTypes.map((t) => (
             <option key={t} value={t}>
               {t}
             </option>
@@ -101,13 +102,30 @@ function InvestigationsPage() {
         <Chip tone="cyan">{filtered.length} shown</Chip>
       </div>
 
-      {!ready ? (
+      {casesLoading ? (
         <Skeletons rows={5} />
+      ) : casesError ? (
+        <div className="panel flex flex-col items-center gap-3 p-8 text-center">
+          <AlertTriangle className="size-6 text-danger" />
+          <p className="text-sm font-medium text-danger">Could not load investigations</p>
+          <p className="max-w-lg font-mono text-[11px] text-muted-foreground">{casesError}</p>
+          <button
+            type="button"
+            onClick={retryCases}
+            className="flex items-center gap-2 rounded-md border border-cyan/50 bg-cyan/10 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-cyan hover:bg-cyan/20"
+          >
+            <RefreshCw className="size-3" /> Retry
+          </button>
+        </div>
       ) : filtered.length === 0 ? (
         <div className="panel">
           <EmptyState
-            title="No investigations match these filters"
-            hint="Clear the search text or widen the case type and priority filters."
+            title={cases.length === 0 ? "No investigations in the database" : "No investigations match these filters"}
+            hint={
+              cases.length === 0
+                ? "The authenticated database query returned zero case records."
+                : "Clear the search text or widen the case type and priority filters."
+            }
           />
         </div>
       ) : (
@@ -151,17 +169,24 @@ function InvestigationsPage() {
                   >
                     Open workspace
                   </Link>
-                  <button
-                    onClick={() => {
-                      deleteCase(c.id);
-                      toast.success(`${c.code} archived`, {
-                        description: "Correlations and graph edges recomputed.",
-                      });
-                    }}
-                    className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:text-danger"
-                  >
-                    <Trash2 className="size-3" /> Archive
-                  </button>
+                  {c.isDatabaseBacked ? (
+                    <span
+                      title="Database archive is not implemented in this read-only phase"
+                      className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground"
+                    >
+                      <Database className="size-3" /> Read only
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        deleteCase(c.id);
+                        toast.success(`${c.code} removed from this local session`);
+                      }}
+                      className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:text-danger"
+                    >
+                      <Trash2 className="size-3" /> Remove local
+                    </button>
+                  )}
                 </div>
               </article>
             );

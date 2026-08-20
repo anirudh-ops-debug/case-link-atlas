@@ -1,9 +1,4 @@
-export type CaseType =
-  | "Missing Person"
-  | "Burglary"
-  | "Theft"
-  | "Assault"
-  | "Vehicle Crime";
+export type CaseType = string;
 
 export type Priority = "Critical" | "High" | "Medium" | "Low";
 
@@ -15,7 +10,8 @@ export type EvidenceType =
   | "Phone"
   | "Photo"
   | "Transport"
-  | "Location";
+  | "Location"
+  | "Other";
 
 export type EvidenceStage = "PROCESSING" | "INDEXED" | "CORRELATED";
 
@@ -27,13 +23,15 @@ export interface Evidence {
   source: string;
   timestamp: string; // ISO
   locationName: string;
-  lat: number;
-  lng: number;
-  reliability: number; // 0-100
+  lat: number | null;
+  lng: number | null;
+  reliability: number | null; // 0-100 when recorded
   details: string;
   interpretation: string;
   keywords: string[];
-  stage: EvidenceStage;
+  stage: EvidenceStage | string;
+  recordKind?: "evidence" | "cctv" | "timeline";
+  relatedEvidenceId?: string | null;
 }
 
 export interface Subject {
@@ -63,6 +61,7 @@ export interface Investigation {
   officer: string;
   createdAt: string;
   evidence: Evidence[];
+  isDatabaseBacked?: boolean;
 }
 
 export type Verdict = "pending" | "confirmed" | "rejected" | "more-evidence";

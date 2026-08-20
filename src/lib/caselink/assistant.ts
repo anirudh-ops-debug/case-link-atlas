@@ -44,8 +44,13 @@ const uniq = <T,>(x: T[]) => Array.from(new Set(x));
 
 function distanceKm(a: Investigation, b: Investigation): number {
   let best = Infinity;
-  for (const eA of a.evidence)
-    for (const eB of b.evidence) best = Math.min(best, haversineKm(eA.lat, eA.lng, eB.lat, eB.lng));
+  for (const eA of a.evidence) {
+    if (eA.lat == null || eA.lng == null) continue;
+    for (const eB of b.evidence) {
+      if (eB.lat == null || eB.lng == null) continue;
+      best = Math.min(best, haversineKm(eA.lat, eA.lng, eB.lat, eB.lng));
+    }
+  }
   return best;
 }
 
