@@ -9,13 +9,6 @@ const verdictSchema = z.object({
   reason: z.string().max(1000).default(""),
 });
 
-export const getCorpus = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const { loadCorpus } = await import("./engine.server");
-    return loadCorpus(context.supabase as never);
-  });
-
 export const getConnections = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
@@ -35,22 +28,6 @@ export const runAnalysis = createServerFn({ method: "POST" })
     const name = (profile.data as { full_name?: string } | null)?.full_name ?? "Investigator";
     return runCorrelation(context.supabase as never, name, context.userId);
   });
-
-/** Single-case run: candidate filtering + seven-factor scoring for one file only. */
-export const findHiddenConnections = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => z.object({ caseId: z.string().uuid() }).parse(data))
-  .handler(async ({ data, context }) => {
-    const { runCorrelation } = await import("./engine.server");
-    const profile = await context.supabase
-      .from("profiles")
-      .select("full_name")
-      .eq("id", context.userId)
-      .maybeSingle();
-    const name = (profile.data as { full_name?: string } | null)?.full_name ?? "Investigator";
-    return runCorrelation(context.supabase as never, name, context.userId, data.caseId);
-  });
-
 
 export const setConnectionVerdict = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])

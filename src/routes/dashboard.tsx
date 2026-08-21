@@ -106,7 +106,7 @@ function AlertsPanel({ alerts, isLoading, error, onRetry }: { alerts: ReturnType
                     {formatAlertKind(alert.kind)} · {fmtDateTime(alert.createdAt)}{connection ? ` · ${connection.confidence}% connection` : ""}
                   </p>
                 </div>
-                {investigation ? <Link to="/investigations/$caseId" params={{ caseId: investigation.id }} className="rounded-md border border-cyan/40 bg-cyan/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan hover:bg-cyan/20">Open investigation</Link> : null}
+                {connection && investigation ? <Link to="/links" search={{ case: investigation.id, link: connection.id }} className="rounded-md border border-cyan/40 bg-cyan/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan hover:bg-cyan/20">Open connection</Link> : investigation ? <Link to="/investigations/$caseId" params={{ caseId: investigation.id }} className="rounded-md border border-cyan/40 bg-cyan/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan hover:bg-cyan/20">Open investigation</Link> : null}
               </div>
               <p className="mt-2 text-[12px] text-cyan">{investigation ? `${investigation.code} — ${investigation.title}` : "Case unavailable"}</p>
               {alert.body ? <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{safeAlertText(alert.body)}</p> : null}

@@ -603,13 +603,10 @@ export interface CorpusAnalysis {
   belowThreshold: number;
 }
 
-/**
- * Pre-filters then scores. When focusCaseId is supplied only pairs involving
- * that file are considered (single-case "find hidden connections").
- */
+/** Pre-filters then scores every available case pair. */
 export function analyseCorpus(
   cases: CaseBundle[],
-  opts: { minScore?: number; focusCaseId?: string } = {},
+  opts: { minScore?: number } = {},
 ): CorpusAnalysis {
   const minScore = opts.minScore ?? 20;
   const pairs: ScoredPair[] = [];
@@ -622,7 +619,6 @@ export function analyseCorpus(
     for (let j = i + 1; j < cases.length; j += 1) {
       const a = cases[i]!;
       const b = cases[j]!;
-      if (opts.focusCaseId && a.id !== opts.focusCaseId && b.id !== opts.focusCaseId) continue;
       possible += 1;
       const gate = prefilterPair(a, b);
       if (!gate.pass) {

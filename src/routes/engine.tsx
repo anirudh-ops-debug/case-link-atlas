@@ -10,18 +10,14 @@ import {
   HelpCircle,
   Loader2,
   RefreshCw,
-  Search,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { Shell } from "@/components/caselink/Shell";
 import { FACTOR_WEIGHTS } from "@/lib/caselink/engine";
-import { useCaseLink } from "@/lib/caselink/store";
 import {
-  findHiddenConnections,
   getConnections,
-  getCorpus,
   runAnalysis,
   setConnectionVerdict,
 } from "@/lib/caselink/engine.functions";
@@ -31,11 +27,11 @@ export const Route = createFileRoute("/engine")({
     typeof search["case"] === "string" ? { case: search["case"] } : {},
   head: () => ({
     meta: [
-      { title: "Connection Analysis · CASELINK Correlation Engine" },
+      { title: "Connection Analysis · CASELINK" },
       {
         name: "description",
         content:
-          "Weighted seven-factor correlation engine with deterministic candidate filtering, per-case hidden connection discovery, freshness tracking and explicit data gaps.",
+          "Weighted seven-factor connection analysis with deterministic candidate filtering, freshness tracking and explicit data gaps.",
       },
       { property: "og:title", content: "Connection Analysis · CASELINK" },
       {
@@ -49,7 +45,7 @@ export const Route = createFileRoute("/engine")({
   }),
   component: EnginePage,
   errorComponent: ({ error }) => (
-    <Shell title="Connection Analysis" subtitle="Correlation engine">
+    <Shell title="Connection Analysis" subtitle="Investigation database">
       <p className="panel p-4 font-mono text-xs text-danger">{(error as Error).message}</p>
     </Shell>
   ),
@@ -79,8 +75,8 @@ interface RunSummary {
   moderate: number;
   weak: number;
   low: number;
+  excludedBelow60?: number;
   computedAt: string;
-  focusCaseNo: string | null;
 }
 
 const VERDICTS = [
@@ -101,38 +97,27 @@ const GAP_TEXT: Record<string, string> = {
 };
 
 function EnginePage() {
-  const search = Route.useSearch();
-  const { ready, session } = useCaseLink();
   const fetchConnections = useServerFn(getConnections);
-  const fetchCorpus = useServerFn(getCorpus);
   const analyse = useServerFn(runAnalysis);
-  const findOne = useServerFn(findHiddenConnections);
   const verdictFn = useServerFn(setConnectionVerdict);
   const qc = useQueryClient();
   const [open, setOpen] = useState<string | null>(null);
   const [reason, setReason] = useState("");
-  const [focusId, setFocusId] = useState<string>(search.case ?? "");
   const [summary, setSummary] = useState<RunSummary | null>(null);
-  const [leadIds, setLeadIds] = useState<string[] | null>(null);
-  const autoRanCase = useRef<string | null>(null);
 
   const connections = useQuery({
     queryKey: ["connections"],
     queryFn: () => fetchConnections(),
   });
 
-  const corpus = useQuery({
-    queryKey: ["corpus-index"],
-    queryFn: () => fetchCorpus(),
-  });
-
-  const applySummary = (r: RunSummary & { leads?: { caseAId: string; caseBId: string }[] }) => {
-    setSummary(r);
-    setLeadIds((r.leads ?? []).map((l) => [l.caseAId, l.caseBId].sort().join("::")));
+  const applySummary = (r: RunSummary & { leads?: { caseAId: string; caseBId: string; score: number }[] }) => {
+    const visibleLeads = (r.leads ?? []).filter((lead) => lead.score >= 60);
+    const excludedBelow60 = r.belowThreshold + (r.leads ?? []).filter((lead) => lead.score < 60).length;
+    setSummary({ ...r, excludedBelow60 });
     toast.success(
-      r.focusCaseNo ? `Hidden-connection search complete · ${r.focusCaseNo}` : `Analysis complete`,
+      "Analysis complete",
       {
-        description: `${r.candidatePairs} candidates examined · ${r.stored} meaningful connections stored · ${r.belowThreshold} low-relevance pairs excluded`,
+        description: `${r.candidatePairs} candidates examined · ${visibleLeads.length} meaningful connections shown · ${excludedBelow60} low-relevance comparisons excluded`,
       },
     );
     void qc.invalidateQueries({ queryKey: ["connections"] });
@@ -143,20 +128,6 @@ function EnginePage() {
     onSuccess: applySummary,
     onError: (e: Error) => toast.error("Analysis failed", { description: e.message }),
   });
-
-  const runOne = useMutation({
-    mutationFn: (caseId: string) => findOne({ data: { caseId } }),
-    onSuccess: applySummary,
-    onError: (e: Error) => toast.error("Hidden-connection search failed", { description: e.message }),
-  });
-
-  useEffect(() => {
-    if (!ready || !session || !search.case || autoRanCase.current === search.case) return;
-    autoRanCase.current = search.case;
-    setFocusId(search.case);
-    runOne.mutate(search.case);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, search.case, session]);
 
   const verdict = useMutation({
     mutationFn: (v: { connectionId: string; verdict: "confirmed" | "rejected" | "inconclusive"; reason: string }) =>
@@ -174,12 +145,14 @@ function EnginePage() {
       }),
   });
 
-  const allRows = (connections.data ?? []).filter((connection) => connection.score >= 50);
-  const rows = leadIds
-    ? allRows.filter((c) => leadIds.includes([c.case_a_id, c.case_b_id].sort().join("::")))
-    : allRows;
-  const files = (corpus.data ?? []) as { id: string; case_no: string; title: string }[];
-  const busy = run.isPending || runOne.isPending;
+  const allRows = (connections.data ?? []).filter((connection) => connection.score >= 60);
+  const rows = allRows;
+  const busy = run.isPending;
+  const visibleCounts = {
+    high: rows.filter((connection) => connection.score >= 85).length,
+    moderate: rows.filter((connection) => connection.score >= 70 && connection.score < 85).length,
+    weak: rows.filter((connection) => connection.score >= 60 && connection.score < 70).length,
+  };
 
   return (
     <Shell
@@ -210,63 +183,23 @@ function EnginePage() {
           <p className="mt-3 text-[11px] leading-snug text-muted-foreground">
             Pairs are first gated by deterministic candidate filtering (crime type, MO overlap, geography, time
             pattern, registration data, shared identifiers). Factors without recorded data are excluded from the
-            denominator and reported as gaps. Connection suggestions require investigator verification. Every correlation is a lead, never a conclusion.
+            denominator and reported as gaps. Connection suggestions require investigator verification. Every connection is a lead, never a conclusion.
           </p>
-        </div>
-
-        {/* single-case discovery */}
-        <div className="panel flex flex-wrap items-center gap-2 p-4">
-          <p className="label-xs w-full">Find hidden connections for one investigation</p>
-          <select
-            value={focusId}
-            onChange={(e) => setFocusId(e.target.value)}
-            className="min-w-[260px] flex-1 rounded-sm border border-input bg-background/70 px-2.5 py-2 text-[12px] outline-none focus:border-cyan/60"
-          >
-            <option value="">Select a database case…</option>
-            {files.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.case_no} — {f.title}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            disabled={!focusId || busy}
-            onClick={() => runOne.mutate(focusId)}
-            className="flex items-center gap-2 rounded-md border border-cyan/50 bg-cyan/10 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-cyan hover:bg-cyan/20 disabled:opacity-50"
-          >
-            {runOne.isPending ? <Loader2 className="size-3 animate-spin" /> : <Search className="size-3" />}
-            Find hidden connections
-          </button>
-          {leadIds ? (
-            <button
-              type="button"
-              onClick={() => {
-                setLeadIds(null);
-                setSummary(null);
-              }}
-              className="rounded-md border border-border px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground hover:border-cyan/40 hover:text-cyan"
-            >
-              Show all correlations
-            </button>
-          ) : null}
         </div>
 
         {summary ? (
           <div className="panel p-4">
-            <p className="label-xs mb-3">
-              Analysis summary{summary.focusCaseNo ? ` · focused on ${summary.focusCaseNo}` : " · investigation database-wide"}
-            </p>
+            <p className="label-xs mb-3">Analysis summary · investigation database-wide</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
               {[
                 ["Cases considered", summary.cases],
                 ["Pairs examined", summary.pairsEvaluated],
                 ["Candidates examined", summary.candidatePairs],
                 ["Skipped as irrelevant", summary.skippedPairs],
-                ["Meaningful stored", summary.stored],
-                ["High", summary.high],
-                ["Moderate", summary.moderate],
-                ["Weak", summary.weak],
+                ["Connections shown", rows.length],
+                ["High", visibleCounts.high],
+                ["Moderate", visibleCounts.moderate],
+                ["Weak", visibleCounts.weak],
               ].map(([label, value]) => (
                 <div key={String(label)} className="rounded-sm border border-border/70 bg-surface-2/50 px-2.5 py-2">
                   <p className="font-mono text-[15px] text-cyan">{value as number}</p>
@@ -275,18 +208,18 @@ function EnginePage() {
               ))}
             </div>
             <p className="mt-3 font-mono text-[11px] text-muted-foreground">
-              {summary.belowThreshold} low-relevance pairs excluded. Scores below the 50% meaningful-connection
-              threshold were calculated for statistics but not stored · calculated {new Date(summary.computedAt).toLocaleString()}
+              {summary.excludedBelow60 ?? summary.belowThreshold} low-relevance comparisons excluded from visible results.
+              Connections below 60% excluded · calculated {new Date(summary.computedAt).toLocaleString()}
             </p>
           </div>
         ) : null}
 
         {connections.isLoading ? (
-          <p className="panel p-4 font-mono text-xs text-muted-foreground">Loading correlation layer…</p>
+          <p className="panel p-4 font-mono text-xs text-muted-foreground">Loading meaningful connections…</p>
         ) : connections.isError ? (
           <div className="panel flex flex-col items-center gap-3 p-8 text-center">
             <AlertTriangle className="size-6 text-danger" />
-            <p className="text-sm font-medium text-danger">Could not load correlations</p>
+            <p className="text-sm font-medium text-danger">Could not load connections</p>
             <p className="max-w-lg font-mono text-[11px] text-muted-foreground">
               {connections.error instanceof Error ? connections.error.message : "Unknown request error"}
             </p>
@@ -298,18 +231,18 @@ function EnginePage() {
               Retry
             </button>
           </div>
-        ) : rows.length === 0 && summary && summary.high + summary.moderate + summary.weak === 0 ? (
+        ) : rows.length === 0 && summary ? (
           <div className="panel flex flex-col items-center gap-3 p-10 text-center">
             <Activity className="size-6 text-cyan" />
             <p className="text-sm font-medium">No meaningful connections found</p>
             <p className="max-w-md text-[12px] text-muted-foreground">
-              This case was compared with the available investigations, but none reached the 50% connection threshold.
+              This investigation database was analysed, but no case connection reached the 60% threshold.
             </p>
           </div>
         ) : rows.length === 0 ? (
           <div className="panel flex flex-col items-center gap-3 p-10 text-center">
             <Activity className="size-6 text-cyan" />
-            <p className="text-sm">No correlations to show.</p>
+            <p className="text-sm">No meaningful connections to show.</p>
             <p className="max-w-md text-[12px] text-muted-foreground">
               Run the analysis to gate every case pair through candidate filtering and score the survivors across the
               seven weighted factors.
@@ -329,16 +262,24 @@ function EnginePage() {
               ].filter(Boolean);
               return (
                 <article key={c.id} className="panel overflow-hidden">
-                  <button
-                    onClick={() => setOpen(isOpen ? null : c.id)}
-                    className="flex w-full items-start gap-3 p-4 text-left"
+                  <Link
+                    to="/links"
+                    search={{ case: c.case_a_id, link: c.id }}
+                    aria-label={`Open investigation board for ${c.caseA?.case_no ?? "first case"} and ${c.caseB?.case_no ?? "second case"}, ${c.score.toFixed(1)} percent ${c.classification}`}
+                    onKeyDown={(event) => {
+                      if (event.key === " ") {
+                        event.preventDefault();
+                        event.currentTarget.click();
+                      }
+                    }}
+                    className="flex w-full cursor-pointer items-start gap-3 p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan"
                   >
                     <span
                       className={
                         "mt-0.5 rounded-sm border px-2 py-1 font-mono text-[13px] " +
                         (strong
                           ? "border-danger/50 bg-danger/10 text-danger"
-                          : c.score >= 50
+                          : c.score >= 60
                             ? "border-amber/50 bg-amber/10 text-amber"
                             : "border-border text-muted-foreground")
                       }
@@ -376,6 +317,15 @@ function EnginePage() {
                         {c.caseB?.title ?? "Unknown file"}
                       </span>
                     </span>
+                  </Link>
+
+                  <button
+                    type="button"
+                    onClick={() => setOpen(isOpen ? null : c.id)}
+                    aria-expanded={isOpen}
+                    className="w-full border-t border-border/50 px-4 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground hover:bg-cyan/5 hover:text-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan"
+                  >
+                    {isOpen ? "Hide factors and verdict controls" : "Review factors and verdict controls"}
                   </button>
 
                   {isOpen ? (
@@ -386,7 +336,7 @@ function EnginePage() {
                         <p className="flex items-start gap-1.5 rounded-sm border border-amber/40 bg-amber/5 p-2.5 text-[11.5px] leading-snug text-amber">
                           <RefreshCw className="mt-0.5 size-3 shrink-0" />
                           One of these files was edited after {new Date(c.computed_at).toLocaleString()}. This score is
-                          out of date — run the analysis or a hidden-connection search to recalculate. The recorded
+                          out of date — run the analysis to recalculate. The recorded
                           verdict is preserved.
                         </p>
                       ) : null}

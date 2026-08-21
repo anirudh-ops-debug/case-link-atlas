@@ -46,25 +46,17 @@ export interface AnalysisRun {
   weak: number;
   low: number;
   computedAt: string;
-  focusCaseNo: string | null;
   leads: ScoredPair[];
 }
 
-/**
- * Recomputes the correlation layer, preserving human verdicts.
- * With focusCaseId only pairs involving that file are recomputed.
- */
+/** Recomputes the complete correlation layer, preserving human verdicts. */
 export async function runCorrelation(
   db: DB,
   actorName: string,
   actorId: string,
-  focusCaseId?: string,
 ): Promise<AnalysisRun> {
   const corpus = await loadCorpus(db);
-  const focus = focusCaseId ? corpus.find((c) => c.id === focusCaseId) ?? null : null;
-  if (focusCaseId && !focus) throw new Error("Case not found in the database corpus.");
-
-  const analysis = analyseCorpus(corpus, focusCaseId ? { minScore: 50, focusCaseId } : { minScore: 50 });
+  const analysis = analyseCorpus(corpus, { minScore: 50 });
   const pairs: ScoredPair[] = analysis.pairs;
 
   const existing = await db.from("case_connections").select("id, case_a_id, case_b_id, verdict");
@@ -78,9 +70,8 @@ export async function runCorrelation(
 
   // Drop stale pending rows; recorded verdicts and their ai_score_at_verdict are never touched.
   const keepKeys = new Set(pairs.map((p) => keyOf(p.caseAId, p.caseBId)));
-  const inScope = (key: string) => !focusCaseId || key.includes(focusCaseId);
   const staleIds = [...prior.entries()]
-    .filter(([k, v]) => v.verdict === "pending" && !keepKeys.has(k) && inScope(k))
+    .filter(([k, v]) => v.verdict === "pending" && !keepKeys.has(k))
     .map(([, v]) => v.id);
   if (staleIds.length) await db.from("case_connections").delete().in("id", staleIds);
 
@@ -159,11 +150,8 @@ export async function runCorrelation(
     actor_id: actorId,
     actor_name: actorName,
     action_type: "analysis",
-    action: focus
-      ? `Searched for hidden connections on ${focus.case_no}`
-      : "Ran cross-case correlation engine",
+    action: "Ran cross-case correlation engine",
     detail: `${corpus.length} files considered, ${analysis.candidatePairs} candidate pairs examined, ${analysis.skippedPairs} skipped as irrelevant, ${stored} meaningful connections stored, ${analysis.belowThreshold} low-relevance pairs excluded (weighted 7-factor model).`,
-    ...(focus ? { case_id: focus.id } : {}),
   });
 
   return {
@@ -179,7 +167,6 @@ export async function runCorrelation(
     weak: count(50, 70),
     low: analysis.belowThreshold,
     computedAt,
-    focusCaseNo: focus?.case_no ?? null,
     leads: pairs,
   };
 
