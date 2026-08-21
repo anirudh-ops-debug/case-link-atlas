@@ -113,6 +113,13 @@ function mapEvidence(row: EvidenceRow, locations: LocationRow[]): Evidence {
     keywords: [row.category, row.filename].filter((value): value is string => Boolean(value)),
     stage: row.status,
     recordKind: "evidence",
+    storagePath: row.storage_path,
+    mimeType: row.mime_type,
+    fileSizeBytes: row.file_size_bytes,
+    originalFilename: row.original_filename,
+    checksumSha256: row.checksum_sha256,
+    withdrawnAt: row.withdrawn_at,
+    withdrawalReason: row.withdrawal_reason,
   };
 }
 

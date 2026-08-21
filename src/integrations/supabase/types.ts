@@ -473,50 +473,71 @@ export type Database = {
         Row: {
           case_id: string
           category: string
+          checksum_sha256: string | null
           collected_at: string | null
           created_at: string
           description: string | null
+          file_size_bytes: number | null
           filename: string | null
           id: string
           latitude: number | null
           longitude: number | null
           mime_type: string | null
+          original_filename: string | null
           status: string
           storage_path: string | null
           uploaded_by: string | null
           uploaded_by_name: string | null
+          updated_at: string
+          withdrawal_reason: string | null
+          withdrawn_at: string | null
+          withdrawn_by: string | null
         }
         Insert: {
           case_id: string
           category: string
+          checksum_sha256?: string | null
           collected_at?: string | null
           created_at?: string
           description?: string | null
+          file_size_bytes?: number | null
           filename?: string | null
           id?: string
           latitude?: number | null
           longitude?: number | null
           mime_type?: string | null
+          original_filename?: string | null
           status?: string
           storage_path?: string | null
           uploaded_by?: string | null
           uploaded_by_name?: string | null
+          updated_at?: string
+          withdrawal_reason?: string | null
+          withdrawn_at?: string | null
+          withdrawn_by?: string | null
         }
         Update: {
           case_id?: string
           category?: string
+          checksum_sha256?: string | null
           collected_at?: string | null
           created_at?: string
           description?: string | null
+          file_size_bytes?: number | null
           filename?: string | null
           id?: string
           latitude?: number | null
           longitude?: number | null
           mime_type?: string | null
+          original_filename?: string | null
           status?: string
           storage_path?: string | null
           uploaded_by?: string | null
           uploaded_by_name?: string | null
+          updated_at?: string
+          withdrawal_reason?: string | null
+          withdrawn_at?: string | null
+          withdrawn_by?: string | null
         }
         Relationships: [
           {
@@ -529,6 +550,13 @@ export type Database = {
           {
             foreignKeyName: "evidence_uploaded_by_fkey"
             columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "evidence_withdrawn_by_fkey"
+            columns: ["withdrawn_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -895,6 +923,14 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      restore_evidence: {
+        Args: { _evidence_id: string }
+        Returns: Database["public"]["Tables"]["evidence"]["Row"]
+      }
+      withdraw_evidence: {
+        Args: { _evidence_id: string; _reason: string }
+        Returns: Database["public"]["Tables"]["evidence"]["Row"]
       }
     }
     Enums: {
