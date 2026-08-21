@@ -35,6 +35,7 @@ export function NetworkGraph({
   className?: string;
 }) {
   const [hover, setHover] = useState<string | null>(null);
+  const meaningfulLinks = useMemo(() => links.filter((link) => link.confidence >= 50), [links]);
 
   const nodes = useMemo(() => {
     const R = Math.min(W, H) / 2 - 92;
@@ -42,7 +43,7 @@ export function NetworkGraph({
     const cy = H / 2;
     return cases.map((c, i) => {
       const a = (i / Math.max(1, cases.length)) * Math.PI * 2 - Math.PI / 2;
-      const degree = links.filter((l) => l.aId === c.id || l.bId === c.id).length;
+      const degree = meaningfulLinks.filter((l) => l.aId === c.id || l.bId === c.id).length;
       return {
         c,
         degree,
@@ -50,7 +51,7 @@ export function NetworkGraph({
         y: cy + Math.sin(a) * R * 0.86,
       };
     });
-  }, [cases, links]);
+  }, [cases, meaningfulLinks]);
 
   const pos = (id: string) => nodes.find((n) => n.c.id === id);
 
@@ -64,7 +65,7 @@ export function NetworkGraph({
         </defs>
         <rect width={W} height={H} fill="url(#net-grid)" />
 
-        {links.map((l, i) => {
+        {meaningfulLinks.map((l, i) => {
           const a = pos(l.aId);
           const b = pos(l.bId);
           if (!a || !b) return null;
@@ -165,7 +166,7 @@ export function NetworkGraph({
         })}
       </svg>
 
-      {!links.length && (
+      {!meaningfulLinks.length && (
         <div className="absolute inset-x-0 bottom-4 text-center label-xs">
           No correlations above threshold — nodes shown without edges
         </div>

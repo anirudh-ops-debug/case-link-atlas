@@ -236,7 +236,7 @@ export async function loadInvestigations(
       client.from("witnesses").select("*"),
       client.from("cctv").select("*"),
       client.from("timeline_events").select("*").order("occurred_at", { ascending: true }),
-      client.from("case_connections").select("*").order("score", { ascending: false }),
+      client.from("case_connections").select("*").gte("score", 50).order("score", { ascending: false }),
     ]);
 
   const failed = [cases, evidence, persons, vehicles, weapons, locations, witnesses, cctv, timeline, connections]

@@ -132,7 +132,7 @@ function EnginePage() {
     toast.success(
       r.focusCaseNo ? `Hidden-connection search complete · ${r.focusCaseNo}` : `Analysis complete`,
       {
-        description: `${r.candidatePairs} candidate pairs · ${r.skippedPairs} skipped · ${r.stored} stored`,
+        description: `${r.candidatePairs} candidates examined · ${r.stored} meaningful connections stored · ${r.belowThreshold} low-relevance pairs excluded`,
       },
     );
     void qc.invalidateQueries({ queryKey: ["connections"] });
@@ -174,7 +174,7 @@ function EnginePage() {
       }),
   });
 
-  const allRows = connections.data ?? [];
+  const allRows = (connections.data ?? []).filter((connection) => connection.score >= 50);
   const rows = leadIds
     ? allRows.filter((c) => leadIds.includes([c.case_a_id, c.case_b_id].sort().join("::")))
     : allRows;
@@ -261,9 +261,9 @@ function EnginePage() {
               {[
                 ["Cases considered", summary.cases],
                 ["Pairs examined", summary.pairsEvaluated],
-                ["Candidate pairs", summary.candidatePairs],
+                ["Candidates examined", summary.candidatePairs],
                 ["Skipped as irrelevant", summary.skippedPairs],
-                ["Connections stored", summary.stored],
+                ["Meaningful stored", summary.stored],
                 ["High", summary.high],
                 ["Moderate", summary.moderate],
                 ["Weak", summary.weak],
@@ -275,8 +275,8 @@ function EnginePage() {
               ))}
             </div>
             <p className="mt-3 font-mono text-[11px] text-muted-foreground">
-              {summary.low} low-relevance · {summary.belowThreshold} candidate pairs scored below the storage
-              threshold and were not stored · calculated {new Date(summary.computedAt).toLocaleString()}
+              {summary.belowThreshold} low-relevance pairs excluded. Scores below the 50% meaningful-connection
+              threshold were calculated for statistics but not stored · calculated {new Date(summary.computedAt).toLocaleString()}
             </p>
           </div>
         ) : null}
@@ -297,6 +297,14 @@ function EnginePage() {
             >
               Retry
             </button>
+          </div>
+        ) : rows.length === 0 && summary && summary.high + summary.moderate + summary.weak === 0 ? (
+          <div className="panel flex flex-col items-center gap-3 p-10 text-center">
+            <Activity className="size-6 text-cyan" />
+            <p className="text-sm font-medium">No meaningful connections found</p>
+            <p className="max-w-md text-[12px] text-muted-foreground">
+              This case was compared with the available investigations, but none reached the 50% connection threshold.
+            </p>
           </div>
         ) : rows.length === 0 ? (
           <div className="panel flex flex-col items-center gap-3 p-10 text-center">
