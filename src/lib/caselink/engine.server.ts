@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { scoreCorpus, type CaseBundle, type ScoredPair } from "./engine";
+import { analyseCorpus, type CaseBundle, type ScoredPair } from "./engine";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type DB = SupabaseClient<any, any, any>;
