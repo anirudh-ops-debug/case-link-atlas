@@ -448,3 +448,201 @@ export function scoreCorpus(cases: CaseBundle[], minScore = 20): ScoredPair[] {
   }
   return out.sort((a, b) => b.score - a.score);
 }
+
+/* ------------------------------------------------------------------ *
+ * Candidate pre-filter
+ *
+ * Deterministic gate applied BEFORE the seven-factor scoring so the engine
+ * does not compare every file blindly. A pair passes on one strong signal
+ * (shared identifier, shared registration, shared person, identical MO tag,
+ * very close scenes) or on two or more weaker signals. A missing attribute
+ * never excludes a pair on its own — it simply contributes no signal.
+ * ------------------------------------------------------------------ */
+
+export interface PrefilterSignal {
+  label: string;
+  strength: "strong" | "weak";
+  detail: string;
+}
+
+export interface PrefilterResult {
+  pass: boolean;
+  signals: PrefilterSignal[];
+  reason: string;
+}
+
+const phoneKeys = (c: CaseBundle) =>
+  new Set(
+    c.persons
+      .map((p) => (p.phone ?? "").replace(/\D/g, "").slice(-10))
+      .filter((x) => x.length === 10),
+  );
+
+const nameKeys = (c: CaseBundle) =>
+  new Set(
+    [
+      ...c.persons.map((p) => p.full_name),
+      ...c.persons.flatMap((p) => p.aliases),
+      ...c.witnesses.map((w) => w.name),
+    ]
+      .map(norm)
+      .filter((n) => n.length > 3),
+  );
+
+const plateKeys = (c: CaseBundle) => new Set(c.vehicles.map(plateKey).filter((p) => p.length >= 4));
+
+const vehicleAttrKeys = (c: CaseBundle) =>
+  new Set(
+    c.vehicles.flatMap((v) =>
+      [v.make_model, v.color, v.vehicle_type].filter((x): x is string => !!x).map(norm),
+    ),
+  );
+
+const descriptorTokens = (c: CaseBundle) =>
+  tokenSet([...c.persons.flatMap((p) => p.descriptors), ...c.witnesses.flatMap((w) => w.descriptors)]);
+
+const moTokens = (c: CaseBundle) => tokenSet([...c.modus_operandi, ...c.tags, c.description]);
+
+export function prefilterPair(a: CaseBundle, b: CaseBundle): PrefilterResult {
+  const signals: PrefilterSignal[] = [];
+  const strong = (label: string, detail: string) => signals.push({ label, strength: "strong", detail });
+  const weak = (label: string, detail: string) => signals.push({ label, strength: "weak", detail });
+
+  // --- strong: shared handset identifier
+  const sharedPhones = overlap(phoneKeys(a), phoneKeys(b));
+  if (sharedPhones.length) {
+    strong("Shared handset", `Contact number ending ${sharedPhones[0]!.slice(-4)} appears on both files.`);
+  }
+
+  // --- strong: shared registration / partial registration
+  const pa = plateKeys(a);
+  const pb = plateKeys(b);
+  const platePair = [...pa].find((x) => [...pb].some((y) => x === y || x.includes(y) || y.includes(x)));
+  if (platePair) strong("Shared registration", `Vehicle registration data overlaps on ${platePair}.`);
+
+  // --- strong: shared person, alias or witness name
+  const sharedNames = overlap(nameKeys(a), nameKeys(b));
+  if (sharedNames.length) strong("Shared person", `Named person or witness in common: ${sharedNames[0]}.`);
+
+  // --- strong: identical recorded MO tag
+  const exactMo = a.modus_operandi.filter((m) => b.modus_operandi.some((x) => norm(x) === norm(m)));
+  if (exactMo.length) strong("Identical MO tag", `Both files record the MO tag "${exactMo[0]}".`);
+
+  // --- geography
+  const ca = coords(a);
+  const cb = coords(b);
+  let best = Number.POSITIVE_INFINITY;
+  for (const p of ca) for (const q of cb) best = Math.min(best, haversineKm(p.lat, p.lng, q.lat, q.lng));
+  if (Number.isFinite(best)) {
+    if (best <= 3) strong("Geographic proximity", `Recorded scenes are ${best.toFixed(2)} km apart.`);
+    else if (best <= 12) weak("Geographic proximity", `Recorded scenes are ${best.toFixed(2)} km apart.`);
+  } else {
+    const nameSim = jaccard(tokenSet([a.location_name]), tokenSet([b.location_name]));
+    if (nameSim > 0) weak("Locality name overlap", "Reported localities share place names (no coordinates on file).");
+  }
+
+  // --- crime type
+  if (norm(a.crime_type) === norm(b.crime_type)) weak("Similar crime type", `Both are ${a.crime_type} files.`);
+
+  // --- date / time pattern
+  const ta = new Date(a.occurred_at).getTime();
+  const tb = new Date(b.occurred_at).getTime();
+  if (Number.isFinite(ta) && Number.isFinite(tb)) {
+    const hours = Math.abs(ta - tb) / 3_600_000;
+    const hourA = new Date(ta).getHours();
+    const hourB = new Date(tb).getHours();
+    const clockGap = Math.min(Math.abs(hourA - hourB), 24 - Math.abs(hourA - hourB));
+    if (hours <= 72) weak("Close incident dates", `Incidents are ${hours.toFixed(1)} hours apart.`);
+    if (clockGap <= 2) {
+      weak(
+        "Similar time-of-day pattern",
+        `Both incidents fall around the ${hourA.toString().padStart(2, "0")}:00 window.`,
+      );
+    }
+  }
+
+  // --- normalised MO / narrative overlap
+  const moShared = overlap(moTokens(a), moTokens(b));
+  if (moShared.length >= 2) {
+    weak("MO language overlap", `Shared method descriptors: ${moShared.slice(0, 4).join(", ")}.`);
+  }
+
+  // --- vehicle attributes (no registration)
+  if (!platePair) {
+    const attrShared = overlap(vehicleAttrKeys(a), vehicleAttrKeys(b));
+    if (attrShared.length) weak("Vehicle attributes", `Matching vehicle attributes: ${attrShared.join(", ")}.`);
+  }
+
+  // --- witness / suspect descriptors
+  const descShared = overlap(descriptorTokens(a), descriptorTokens(b));
+  if (descShared.length >= 2) {
+    weak("Descriptor overlap", `Shared witness/suspect descriptors: ${descShared.slice(0, 4).join(", ")}.`);
+  }
+
+  const strongCount = signals.filter((s) => s.strength === "strong").length;
+  const weakCount = signals.length - strongCount;
+  const pass = strongCount >= 1 || weakCount >= 2;
+
+  return {
+    pass,
+    signals,
+    reason: pass
+      ? `Passed candidate filtering on ${strongCount} strong and ${weakCount} supporting signal${weakCount === 1 ? "" : "s"}: ${signals.map((s) => s.label.toLowerCase()).join(", ")}.`
+      : signals.length
+        ? `Skipped as irrelevant: only ${weakCount} weak signal (${signals.map((s) => s.label.toLowerCase()).join(", ")}) and no strong signal.`
+        : "Skipped as irrelevant: no shared deterministic signal between the two files.",
+  };
+}
+
+export interface CorpusAnalysis {
+  pairs: ScoredPair[];
+  casesConsidered: number;
+  pairsPossible: number;
+  candidatePairs: number;
+  skippedPairs: number;
+  belowThreshold: number;
+}
+
+/**
+ * Pre-filters then scores. When focusCaseId is supplied only pairs involving
+ * that file are considered (single-case "find hidden connections").
+ */
+export function analyseCorpus(
+  cases: CaseBundle[],
+  opts: { minScore?: number; focusCaseId?: string } = {},
+): CorpusAnalysis {
+  const minScore = opts.minScore ?? 20;
+  const pairs: ScoredPair[] = [];
+  let possible = 0;
+  let candidates = 0;
+  let skipped = 0;
+  let below = 0;
+
+  for (let i = 0; i < cases.length; i += 1) {
+    for (let j = i + 1; j < cases.length; j += 1) {
+      const a = cases[i]!;
+      const b = cases[j]!;
+      if (opts.focusCaseId && a.id !== opts.focusCaseId && b.id !== opts.focusCaseId) continue;
+      possible += 1;
+      const gate = prefilterPair(a, b);
+      if (!gate.pass) {
+        skipped += 1;
+        continue;
+      }
+      candidates += 1;
+      const pair = scorePair(a, b);
+      pair.explanation = `${pair.explanation} Candidate filter: ${gate.reason}`;
+      if (pair.score >= minScore) pairs.push(pair);
+      else below += 1;
+    }
+  }
+
+  return {
+    pairs: pairs.sort((x, y) => y.score - x.score),
+    casesConsidered: cases.length,
+    pairsPossible: possible,
+    candidatePairs: candidates,
+    skippedPairs: skipped,
+    belowThreshold: below,
+  };
+}

@@ -36,6 +36,22 @@ export const runAnalysis = createServerFn({ method: "POST" })
     return runCorrelation(context.supabase as never, name, context.userId);
   });
 
+/** Single-case run: candidate filtering + seven-factor scoring for one file only. */
+export const findHiddenConnections = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => z.object({ caseId: z.string().uuid() }).parse(data))
+  .handler(async ({ data, context }) => {
+    const { runCorrelation } = await import("./engine.server");
+    const profile = await context.supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", context.userId)
+      .maybeSingle();
+    const name = (profile.data as { full_name?: string } | null)?.full_name ?? "Investigator";
+    return runCorrelation(context.supabase as never, name, context.userId, data.caseId);
+  });
+
+
 export const setConnectionVerdict = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => verdictSchema.parse(data))
