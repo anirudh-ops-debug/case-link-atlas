@@ -11,6 +11,12 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 const STORAGE_PATH_PATTERN = /^cases\/([0-9a-f-]{36})\/evidence\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.([a-z0-9]+)$/i;
 
 type EvidenceRow = Tables<"evidence">;
+type CaseRow = Tables<"cases">;
+type PersonRow = Tables<"persons">;
+type EvidenceCasePerson = Pick<
+  PersonRow,
+  "case_id" | "full_name" | "role_in_case"
+>;
 type AppRole = Database["public"]["Enums"]["app_role"];
 
 type EvidenceFileCategory = "image" | "document" | "video";
@@ -70,11 +76,36 @@ export interface UploadEvidenceFileInput {
   description?: string | null;
   collectedAt?: string | null;
   file: File;
+  onStage?: (stage: EvidenceUploadStage) => void;
+  isCancelled?: () => boolean;
 }
 
 export interface UploadedEvidenceFile {
   evidence: EvidenceRow;
-  storagePath: string;
+  auditWarning: string | null;
+}
+
+export type EvidenceUploadStage =
+  | "Validating file"
+  | "Calculating integrity checksum"
+  | "Uploading private file"
+  | "Saving evidence record"
+  | "Complete";
+
+export interface EvidenceCaseSummary {
+  id: string;
+  caseNumber: string;
+  title: string;
+  primarySubject: string | null;
+  status: CaseRow["status"];
+  investigatorName: string | null;
+  evidence: EvidenceRow[];
+}
+
+export interface EvidenceAccess {
+  userId: string;
+  canUpload: boolean;
+  canRestore: boolean;
 }
 
 export class EvidenceUploadError extends Error {
@@ -164,6 +195,62 @@ async function requireVerifiedActor(): Promise<{ userId: string; name: string }>
   return { userId, name: profileResult.data.full_name };
 }
 
+export async function getEvidenceAccess(): Promise<EvidenceAccess> {
+  const session = await requireSession();
+  const { data, error } = await supabase.from("user_roles").select("role").eq("user_id", session.user.id);
+  if (error) throw new Error(`Unable to verify your assigned role: ${error.message}`);
+  const roles = data?.map(({ role }) => role) ?? [];
+  return {
+    userId: session.user.id,
+    canUpload: roles.some((role) => VERIFIED_ROLES.includes(role)),
+    canRestore: roles.includes("senior_investigator") || roles.includes("administrator"),
+  };
+}
+
+export async function loadEvidenceCaseSummaries(): Promise<EvidenceCaseSummary[]> {
+  const [casesResult, personsResult, evidenceResult] = await Promise.all([
+    supabase.from("cases").select("id, case_no, title, status, investigator_name").order("occurred_at", { ascending: false }),
+    supabase.from("persons").select("case_id, full_name, role_in_case"),
+    supabase.from("evidence").select("*").order("created_at", { ascending: false }),
+  ]);
+  const failed = [casesResult, personsResult, evidenceResult].find((result) => result.error)?.error;
+  if (failed) throw new Error(failed.message);
+
+  const personsByCase = new Map<string, EvidenceCasePerson[]>();
+  for (const person of personsResult.data ?? []) {
+    personsByCase.set(person.case_id, [...(personsByCase.get(person.case_id) ?? []), person]);
+  }
+  const evidenceByCase = new Map<string, EvidenceRow[]>();
+  for (const evidence of evidenceResult.data ?? []) {
+    evidenceByCase.set(evidence.case_id, [...(evidenceByCase.get(evidence.case_id) ?? []), evidence]);
+  }
+
+  return (casesResult.data ?? []).map((caseRow) => {
+    const persons = personsByCase.get(caseRow.id) ?? [];
+    const subject = persons.find((person) => person.role_in_case?.toLowerCase() === "subject") ?? persons[0];
+    return {
+      id: caseRow.id,
+      caseNumber: caseRow.case_no,
+      title: caseRow.title,
+      primarySubject: subject?.full_name ?? null,
+      status: caseRow.status,
+      investigatorName: caseRow.investigator_name,
+      evidence: evidenceByCase.get(caseRow.id) ?? [],
+    };
+  });
+}
+
+export async function loadEvidenceForCase(caseId: string): Promise<EvidenceRow[]> {
+  assertUuid(caseId, "Case ID");
+  const { data, error } = await supabase
+    .from("evidence")
+    .select("*")
+    .eq("case_id", caseId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
 async function sha256(file: File): Promise<string> {
   if (!globalThis.crypto?.subtle) throw new Error("Secure file checksums are not supported by this browser.");
   const digest = await globalThis.crypto.subtle.digest("SHA-256", await file.arrayBuffer());
@@ -193,6 +280,7 @@ async function attemptOrphanCleanup(storagePath: string): Promise<string | null>
 
 export async function uploadEvidenceFile(input: UploadEvidenceFileInput): Promise<UploadedEvidenceFile> {
   assertUuid(input.caseId, "Case ID");
+  input.onStage?.("Validating file");
   const validated = validateEvidenceFile(input.file);
   const category = requiredText(input.category, "Evidence category");
   const displayLabel = requiredText(input.displayLabel, "Evidence display label");
@@ -202,8 +290,11 @@ export async function uploadEvidenceFile(input: UploadEvidenceFileInput): Promis
   const evidenceId = globalThis.crypto.randomUUID();
   const objectUuid = globalThis.crypto.randomUUID();
   const storagePath = `cases/${input.caseId}/evidence/${evidenceId}/${objectUuid}.${validated.extension}`;
+  input.onStage?.("Calculating integrity checksum");
   const checksum = await sha256(input.file);
+  if (input.isCancelled?.()) throw new Error("Evidence upload canceled.");
 
+  input.onStage?.("Uploading private file");
   const { error: uploadError } = await supabase.storage.from(EVIDENCE_BUCKET).upload(storagePath, input.file, {
     contentType: validated.mimeType,
     upsert: false,
@@ -226,13 +317,29 @@ export async function uploadEvidenceFile(input: UploadEvidenceFileInput): Promis
     status: "Indexed",
     collected_at: input.collectedAt ?? null,
   };
+  input.onStage?.("Saving evidence record");
   const { data, error: metadataError } = await supabase.from("evidence").insert(metadata).select("*").single();
   if (metadataError) {
     const cleanupWarning = await attemptOrphanCleanup(storagePath);
     throw new EvidenceUploadError(`Evidence metadata could not be saved: ${metadataError.message}`, cleanupWarning);
   }
 
-  return { evidence: data, storagePath };
+  let auditWarning: string | null = null;
+  try {
+    const { error } = await supabase.from("audit_logs").insert({
+      actor_id: actor.userId,
+      actor_name: actor.name,
+      action_type: "evidence_upload",
+      action: "Uploaded evidence",
+      case_id: input.caseId,
+      detail: `Uploaded evidence record ${data.id}.`,
+    });
+    auditWarning = error?.message ?? null;
+  } catch (error) {
+    auditWarning = error instanceof Error ? error.message : "Audit request failed.";
+  }
+  input.onStage?.("Complete");
+  return { evidence: data, auditWarning };
 }
 
 async function createSignedEvidenceUrl(storagePath: string, expiresIn: number, download?: string): Promise<string> {

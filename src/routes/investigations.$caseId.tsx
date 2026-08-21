@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { AlertTriangle, RefreshCw,Upload } from "lucide-react";
 import { useState } from "react";
 
 import { AIPanel } from "@/components/caselink/AIPanel";
@@ -121,12 +121,23 @@ function InvestigationView() {
         <Chip>{investigation.lastKnownLocation}</Chip>
         <Chip tone={links.length ? "amber" : "default"}>{links.length} candidate links</Chip>
         <Chip>{investigation.evidence.length} evidence</Chip>
-        <Link
-          to="/evidence"
-          className="ml-auto font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:underline"
-        >
-          Manage evidence
-        </Link>
+
+<Link
+  to="/evidence"
+  search={{ case: investigation.id,upload:true }}
+  className="ml-auto rounded-md border border-cyan/50 bg-cyan/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:bg-cyan/20"
+>
+  <Upload className="mr-1 inline size-3" />
+  Upload evidence
+</Link>
+
+<Link
+  to="/evidence"
+  search={{ case: investigation.id }}
+  className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:underline"
+>
+  Manage evidence
+</Link>
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[300px_minmax(0,1fr)_340px]">
