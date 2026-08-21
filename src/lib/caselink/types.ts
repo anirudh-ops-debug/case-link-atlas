@@ -84,10 +84,21 @@ export interface CaseLink {
   aId: string;
   bId: string;
   confidence: number;
+  databaseVerdict?: "pending" | "confirmed" | "rejected" | "inconclusive";
   reasons: LinkReason[];
   sharedAttributes: string[];
   explanation: string;
   sharedEvidenceIds: string[];
+}
+
+export interface IntelligenceAlert {
+  id: string;
+  kind: string;
+  title: string;
+  body: string | null;
+  caseId: string | null;
+  connectionId: string | null;
+  createdAt: string;
 }
 
 /* ---------------------------------------------------------------

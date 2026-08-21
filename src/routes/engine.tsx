@@ -31,13 +31,13 @@ export const Route = createFileRoute("/engine")({
     typeof search["case"] === "string" ? { case: search["case"] } : {},
   head: () => ({
     meta: [
-      { title: "Intelligent Matching · CASELINK Correlation Engine" },
+      { title: "Connection Analysis · CASELINK Correlation Engine" },
       {
         name: "description",
         content:
           "Weighted seven-factor correlation engine with deterministic candidate filtering, per-case hidden connection discovery, freshness tracking and explicit data gaps.",
       },
-      { property: "og:title", content: "Intelligent Matching · CASELINK" },
+      { property: "og:title", content: "Connection Analysis · CASELINK" },
       {
         property: "og:description",
         content:
@@ -49,11 +49,11 @@ export const Route = createFileRoute("/engine")({
   }),
   component: EnginePage,
   errorComponent: ({ error }) => (
-    <Shell title="Intelligent Matching" subtitle="Correlation engine">
+    <Shell title="Connection Analysis" subtitle="Correlation engine">
       <p className="panel p-4 font-mono text-xs text-danger">{(error as Error).message}</p>
     </Shell>
   ),
-  notFoundComponent: () => <Shell title="Intelligent Matching">Not found</Shell>,
+  notFoundComponent: () => <Shell title="Connection Analysis">Not found</Shell>,
 });
 
 const pct = (n: number | null) => (n == null ? "—" : `${Math.round(n * 100)}%`);
@@ -183,8 +183,8 @@ function EnginePage() {
 
   return (
     <Shell
-      title="Intelligent Matching"
-      subtitle="Candidate filtering → weighted seven-factor scoring · database corpus"
+      title="Connection Analysis"
+      subtitle="Candidate filtering → weighted seven-factor scoring · investigation database"
       actions={
         <button
           onClick={() => run.mutate()}
@@ -210,7 +210,7 @@ function EnginePage() {
           <p className="mt-3 text-[11px] leading-snug text-muted-foreground">
             Pairs are first gated by deterministic candidate filtering (crime type, MO overlap, geography, time
             pattern, registration data, shared identifiers). Factors without recorded data are excluded from the
-            denominator and reported as gaps. Every correlation is a lead for human verification, never a conclusion.
+            denominator and reported as gaps. Connection suggestions require investigator verification. Every correlation is a lead, never a conclusion.
           </p>
         </div>
 
@@ -255,7 +255,7 @@ function EnginePage() {
         {summary ? (
           <div className="panel p-4">
             <p className="label-xs mb-3">
-              Analysis summary{summary.focusCaseNo ? ` · focused on ${summary.focusCaseNo}` : " · corpus-wide"}
+              Analysis summary{summary.focusCaseNo ? ` · focused on ${summary.focusCaseNo}` : " · investigation database-wide"}
             </p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
               {[

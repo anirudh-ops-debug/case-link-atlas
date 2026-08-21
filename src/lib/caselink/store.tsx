@@ -13,6 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 import {
   createInvestigation as createDatabaseInvestigation,
+  loadIntelligenceAlerts,
   loadInvestigations,
   type CreateInvestigationInput,
   type CreateInvestigationResult,
@@ -22,6 +23,7 @@ import type {
   AuditEntry,
   CaseLink,
   Evidence,
+  IntelligenceAlert,
   Investigation,
   Permission,
   Role,
@@ -78,8 +80,14 @@ interface Ctx {
   ready: boolean;
   authError: string | null;
   casesLoading: boolean;
+  casesLoaded: boolean;
   casesError: string | null;
   retryCases: () => void;
+  alertsLoading: boolean;
+  alertsLoaded: boolean;
+  alertsError: string | null;
+  retryAlerts: () => void;
+  alerts: IntelligenceAlert[];
   cases: Investigation[];
   links: CaseLink[];
   verdicts: Record<string, Verdict>;
@@ -179,7 +187,12 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
   const [cases, setCases] = useState<Investigation[]>([]);
   const [databaseLinks, setDatabaseLinks] = useState<CaseLink[]>([]);
   const [casesLoading, setCasesLoading] = useState(false);
+  const [casesLoaded, setCasesLoaded] = useState(false);
   const [casesError, setCasesError] = useState<string | null>(null);
+  const [alerts, setAlerts] = useState<IntelligenceAlert[]>([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertsLoaded, setAlertsLoaded] = useState(false);
+  const [alertsError, setAlertsError] = useState<string | null>(null);
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({});
   const [session, setSession] = useState<Session | null>(null);
   const [feed, setFeed] = useState<FeedItem[]>([]);
@@ -255,23 +268,50 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
       return message;
     } finally {
       setCasesLoading(false);
+      setCasesLoaded(true);
+    }
+  }, []);
+
+  const fetchAlerts = useCallback(async (): Promise<string | null> => {
+    setAlertsLoading(true);
+    setAlertsError(null);
+    try {
+      setAlerts(await loadIntelligenceAlerts(supabase));
+      return null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load intelligence alerts.";
+      setAlerts([]);
+      setAlertsError(message);
+      return message;
+    } finally {
+      setAlertsLoading(false);
+      setAlertsLoaded(true);
     }
   }, []);
 
   useEffect(() => {
     if (session) {
       void fetchCases();
+      void fetchAlerts();
     } else {
       setCases([]);
       setDatabaseLinks([]);
       setCasesError(null);
       setCasesLoading(false);
+      setCasesLoaded(false);
+      setAlerts([]);
+      setAlertsError(null);
+      setAlertsLoading(false);
+      setAlertsLoaded(false);
     }
-  }, [fetchCases, session]);
+  }, [fetchAlerts, fetchCases, session]);
 
   const retryCases = useCallback(() => {
     if (session) void fetchCases();
   }, [fetchCases, session]);
+  const retryAlerts = useCallback(() => {
+    if (session) void fetchAlerts();
+  }, [fetchAlerts, session]);
   useEffect(() => {
     if (ready) write(VERDICTS_KEY, verdicts);
   }, [verdicts, ready]);
@@ -505,8 +545,14 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
       ready,
       authError,
       casesLoading,
+      casesLoaded,
       casesError,
       retryCases,
+      alertsLoading,
+      alertsLoaded,
+      alertsError,
+      retryAlerts,
+      alerts,
       cases,
       links,
       verdicts,
@@ -537,8 +583,14 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
       ready,
       authError,
       casesLoading,
+      casesLoaded,
       casesError,
       retryCases,
+      alertsLoading,
+      alertsLoaded,
+      alertsError,
+      retryAlerts,
+      alerts,
       cases,
       links,
       verdicts,
