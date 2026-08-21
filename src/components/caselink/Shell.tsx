@@ -22,11 +22,11 @@ import { useCaseLink } from "@/lib/caselink/store";
 
 const NAV = [
   { to: "/dashboard", label: "Command Center", icon: LayoutDashboard },
-  { to: "/investigations", label: "Active Investigations", icon: FolderSearch },
+  { to: "/investigations", label: "Investigations", icon: FolderSearch },
   { to: "/investigations/new", label: "New Investigation", icon: PlusCircle },
   { to: "/evidence", label: "Evidence Management", icon: Boxes },
-  { to: "/links", label: "Cross-Case Links", icon: Network },
-  { to: "/engine", label: "Intelligent Matching", icon: Cpu },
+  { to: "/links", label: "Case Connections", icon: Network },
+  { to: "/engine", label: "Connection Analysis", icon: Cpu },
   { to: "/assistant", label: "Investigator Assistant", icon: Sparkles },
   { to: "/audit", label: "Audit Trail", icon: ScrollText },
   { to: "/profile", label: "Profile & Settings", icon: UserCog },
@@ -102,7 +102,7 @@ export function Shell({
 
           {!collapsed && (
             <div className="m-2 rounded-md border border-border/70 bg-surface-2/50 p-2.5">
-              <p className="label-xs">Corpus status</p>
+              <p className="label-xs">Investigation database status</p>
               <p className="mt-1 font-mono text-[11px] text-foreground">
                 {cases.length} files · {links.length} candidate links
               </p>
@@ -172,7 +172,7 @@ export function Shell({
           <main className="min-w-0 flex-1 p-3 sm:p-4">{children}</main>
 
           <footer className="border-t border-border/70 px-4 py-3 label-xs">
-            CASELINK · hackathon prototype · fictional synthetic dataset · AI output is decision
+            CASELINK · fictional synthetic dataset · AI output is decision
             support only, never an enforcement decision
           </footer>
         </div>

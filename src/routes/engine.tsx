@@ -157,7 +157,7 @@ function EnginePage() {
   return (
     <Shell
       title="Connection Analysis"
-      subtitle="Investigation database · weighted seven-factor scoring"
+      subtitle="Candidate filtering → weighted seven-factor scoring · investigation database"
       actions={
         <button
           onClick={() => run.mutate()}
@@ -183,13 +183,13 @@ function EnginePage() {
           <p className="mt-3 text-[11px] leading-snug text-muted-foreground">
             Pairs are first gated by deterministic candidate filtering (crime type, MO overlap, geography, time
             pattern, registration data, shared identifiers). Factors without recorded data are excluded from the
-            denominator and reported as gaps. Every connection is a lead for human verification, never a conclusion.
+            denominator and reported as gaps. Connection suggestions require investigator verification. Every connection is a lead, never a conclusion.
           </p>
         </div>
 
         {summary ? (
           <div className="panel p-4">
-            <p className="label-xs mb-3">Investigation database analysis summary</p>
+            <p className="label-xs mb-3">Analysis summary · investigation database-wide</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
               {[
                 ["Cases considered", summary.cases],
@@ -336,7 +336,7 @@ function EnginePage() {
                         <p className="flex items-start gap-1.5 rounded-sm border border-amber/40 bg-amber/5 p-2.5 text-[11.5px] leading-snug text-amber">
                           <RefreshCw className="mt-0.5 size-3 shrink-0" />
                           One of these files was edited after {new Date(c.computed_at).toLocaleString()}. This score is
-                          out of date — run the analysis or a hidden-connection search to recalculate. The recorded
+                          out of date — run the analysis to recalculate. The recorded
                           verdict is preserved.
                         </p>
                       ) : null}

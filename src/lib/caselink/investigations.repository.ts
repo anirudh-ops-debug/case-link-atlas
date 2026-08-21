@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database, Tables } from "@/integrations/supabase/types";
-import type { CaseLink, Evidence, EvidenceType, Investigation } from "./types";
+import type { CaseLink, Evidence, EvidenceType, IntelligenceAlert, Investigation } from "./types";
 
 type CaseRow = Tables<"cases">;
 type EvidenceRow = Tables<"evidence">;
@@ -13,6 +13,7 @@ type WitnessRow = Tables<"witnesses">;
 type CctvRow = Tables<"cctv">;
 type TimelineRow = Tables<"timeline_events">;
 type ConnectionRow = Tables<"case_connections">;
+type AlertRow = Tables<"alerts">;
 
 export interface InvestigationRepositoryResult {
   cases: Investigation[];
@@ -222,10 +223,23 @@ function mapConnection(row: ConnectionRow): CaseLink {
     aId: row.case_a_id,
     bId: row.case_b_id,
     confidence: Number(row.score),
+    databaseVerdict: row.verdict,
     reasons: [],
     sharedAttributes: [],
     explanation: row.explanation ?? "",
     sharedEvidenceIds: [],
+  };
+}
+
+function mapAlert(row: AlertRow): IntelligenceAlert {
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    body: row.body,
+    caseId: row.case_id,
+    connectionId: row.connection_id,
+    createdAt: row.created_at,
   };
 }
 
@@ -276,6 +290,18 @@ export async function loadInvestigations(
     ),
     links: (connections.data ?? []).map(mapConnection),
   };
+}
+
+export async function loadIntelligenceAlerts(
+  client: SupabaseClient<Database>,
+): Promise<IntelligenceAlert[]> {
+  const { data, error } = await client
+    .from("alerts")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(mapAlert);
 }
 
 export async function createInvestigation(
