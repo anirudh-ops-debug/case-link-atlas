@@ -17,6 +17,7 @@ import { toast } from "sonner";
 
 import { Shell } from "@/components/caselink/Shell";
 import { FACTOR_WEIGHTS } from "@/lib/caselink/engine";
+import { useCaseLink } from "@/lib/caselink/store";
 import {
   findHiddenConnections,
   getConnections,
@@ -26,9 +27,8 @@ import {
 } from "@/lib/caselink/engine.functions";
 
 export const Route = createFileRoute("/engine")({
-  validateSearch: (search: Record<string, unknown>) => ({
-    case: typeof search["case"] === "string" ? (search["case"] as string) : undefined,
-  }),
+  validateSearch: (search: Record<string, unknown>) =>
+    typeof search["case"] === "string" ? { case: search["case"] } : {},
   head: () => ({
     meta: [
       { title: "Intelligent Matching · CASELINK Correlation Engine" },
@@ -102,6 +102,7 @@ const GAP_TEXT: Record<string, string> = {
 
 function EnginePage() {
   const search = Route.useSearch();
+  const { ready, session } = useCaseLink();
   const fetchConnections = useServerFn(getConnections);
   const fetchCorpus = useServerFn(getCorpus);
   const analyse = useServerFn(runAnalysis);
@@ -113,7 +114,7 @@ function EnginePage() {
   const [focusId, setFocusId] = useState<string>(search.case ?? "");
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [leadIds, setLeadIds] = useState<string[] | null>(null);
-  const autoRan = useRef(false);
+  const autoRanCase = useRef<string | null>(null);
 
   const connections = useQuery({
     queryKey: ["connections"],
@@ -150,12 +151,12 @@ function EnginePage() {
   });
 
   useEffect(() => {
-    if (!search.case || autoRan.current) return;
-    autoRan.current = true;
+    if (!ready || !session || !search.case || autoRanCase.current === search.case) return;
+    autoRanCase.current = search.case;
     setFocusId(search.case);
     runOne.mutate(search.case);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search.case]);
+  }, [ready, search.case, session]);
 
   const verdict = useMutation({
     mutationFn: (v: { connectionId: string; verdict: "confirmed" | "rejected" | "inconclusive"; reason: string }) =>
