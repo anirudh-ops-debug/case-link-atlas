@@ -1,257 +1,51 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, Eye, RefreshCw, Search, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { Chip, EVIDENCE_COLOR, SectionTitle, fmtDateTime } from "@/components/caselink/bits";
-import { DetailDrawer, type DrawerTarget } from "@/components/caselink/DetailDrawer";
 import { Shell } from "@/components/caselink/Shell";
-import { EVIDENCE_TYPES, LOCATION_PRESETS } from "@/lib/caselink/data";
-import { useCaseLink } from "@/lib/caselink/store";
-import type { EvidenceType } from "@/lib/caselink/types";
+import { EvidencePreviewDialog } from "@/components/caselink/evidence/EvidencePreviewDialog";
+import { EvidenceUploadDialog } from "@/components/caselink/evidence/EvidenceUploadDialog";
+import { EvidenceWithdrawalDialog } from "@/components/caselink/evidence/EvidenceWithdrawalDialog";
+import { createEvidenceDownloadUrl, getEvidenceAccess, loadEvidenceCaseSummaries, loadEvidenceForCase, type EvidenceAccess, type EvidenceCaseSummary } from "@/lib/caselink/evidence.repository";
+import type { Tables } from "@/integrations/supabase/types";
 
 export const Route = createFileRoute("/evidence")({
-  head: () => ({
-    meta: [
-      { title: "Evidence Management · CASELINK" },
-      {
-        name: "description",
-        content:
-          "Central evidence register: intake with processing pipeline, reliability weighting, keyword attributes and one-click access to connected evidence threads.",
-      },
-      { property: "og:title", content: "Evidence Management · CASELINK" },
-      {
-        property: "og:description",
-        content: "Add, search and withdraw evidence records; correlations update immediately.",
-      },
-    ],
-  }),
+  validateSearch: (search: Record<string, unknown>) => ({ case: typeof search["case"] === "string" ? search["case"] : undefined,upload: search["upload"] === "true", }),
+  head: () => ({ meta: [{ title: "Evidence Management · CASELINK" }, { name: "description", content: "Private, case-grouped evidence management." }] }),
   component: EvidencePage,
 });
+type EvidenceRow = Tables<"evidence">;
+const date = (value: string | null | undefined) => value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not recorded";
+const size = (value: number | null) => value == null ? "Not recorded" : value < 1024 ? `${value} B` : value < 1048576 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1048576).toFixed(1)} MB`;
 
 function EvidencePage() {
-  const { cases, allEvidence, addEvidence, updateEvidence, deleteEvidence } = useCaseLink();
-  const [q, setQ] = useState("");
-  const [type, setType] = useState("all");
-  const [target, setTarget] = useState<DrawerTarget | null>(null);
+  const search = Route.useSearch(); const navigate = Route.useNavigate();
+  const [cases, setCases] = useState<EvidenceCaseSummary[]>([]); const [access, setAccess] = useState<EvidenceAccess | null>(null);
+  const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null); const [q, setQ] = useState("");
+  const [uploadOpen, setUploadOpen] = useState(search.upload === true); const [preview, setPreview] = useState<EvidenceRow | null>(null); const [withdrawal, setWithdrawal] = useState<EvidenceRow | null>(null); const [downloading, setDownloading] = useState<string | null>(null);
+  async function load() { setLoading(true); setError(null); try { const [nextCases, nextAccess] = await Promise.all([loadEvidenceCaseSummaries(), getEvidenceAccess().catch(() => null)]); setCases(nextCases); setAccess(nextAccess); } catch (cause) { setError(cause instanceof Error ? cause.message : "Evidence cases could not be loaded."); } finally { setLoading(false); } }
+  async function refreshCase(caseId: string) { try { const evidence = await loadEvidenceForCase(caseId); setCases((current) => current.map((item) => item.id === caseId ? { ...item, evidence } : item)); } catch (cause) { toast.error("Evidence list could not be refreshed", { description: cause instanceof Error ? cause.message : "Please retry." }); } }
+  useEffect(() => { void load(); }, []);
+  const selected = cases.find((item) => item.id === search.case); const invalid = Boolean(search.case) && !loading && !error && !selected;
+  const filtered = useMemo(() => { const needle = q.trim().toLowerCase(); return !needle ? cases : cases.filter((item) => [item.caseNumber, item.title, item.primarySubject, item.status, item.investigatorName].filter(Boolean).join(" ").toLowerCase().includes(needle)); }, [cases, q]);
+  const open = (id: string) => void navigate({ to: "/evidence", search: { case: id } }); const back = () => void navigate({ to: "/evidence", search: {case: undefined} });
+  async function download(item: EvidenceRow) { if (!item.storage_path || downloading) return; const filename = item.original_filename || item.filename || item.category || "evidence"; setDownloading(item.id); try { const url = await createEvidenceDownloadUrl(item.storage_path, filename); const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; anchor.rel = "noopener"; document.body.append(anchor); anchor.click(); anchor.remove(); } catch (cause) { toast.error("Download unavailable", { description: cause instanceof Error ? cause.message : "The private download link could not be created." }); } finally { setDownloading(null); } }
+  return <Shell title="Evidence Management" subtitle="Private evidence organized by investigation">
+    {loading ? <section className="panel p-8" role="status">Loading investigation cases…</section> : error ? <section className="panel space-y-3 p-8" role="alert"><p>Evidence data could not be loaded: {error}</p><button className="rounded-md border px-3 py-2 text-sm" onClick={() => void load()}><RefreshCw className="mr-1 inline size-4" />Retry</button></section> : invalid ? <section className="panel space-y-3 p-8" role="alert"><p>This investigation is unavailable or you do not have access to it.</p><button className="rounded-md border px-3 py-2 text-sm" onClick={back}>Back to Cases</button></section> : selected ? <Workspace item={selected} access={access} uploadOpen={uploadOpen} setUploadOpen={setUploadOpen} preview={preview} setPreview={setPreview} withdrawal={withdrawal} setWithdrawal={setWithdrawal} downloading={downloading} onBack={back} onDownload={download} onRefresh={() => refreshCase(selected.id)} /> : <CaseList cases={cases} filtered={filtered} q={q} setQ={setQ} onOpen={open} />}
+  </Shell>;
+}
 
-  const [caseId, setCaseId] = useState(cases[0]?.id ?? "");
-  const [evType, setEvType] = useState<EvidenceType>("CCTV");
-  const [label, setLabel] = useState("");
-  const [location, setLocation] = useState(LOCATION_PRESETS[0]!.name);
-  const [when, setWhen] = useState(new Date().toISOString().slice(0, 16));
-  const [reliability, setReliability] = useState(78);
-  const selectedCase = cases.find((item) => item.id === caseId);
+function CaseList({ cases, filtered, q, setQ, onOpen }: { cases: EvidenceCaseSummary[]; filtered: EvidenceCaseSummary[]; q: string; setQ: (value: string) => void; onOpen: (id: string) => void }) {
+  return <section className="panel overflow-hidden"><div className="border-b p-4"><label className="flex items-center gap-2 rounded-md border px-3 py-2"><Search className="size-4 text-muted-foreground" /><span className="sr-only">Search cases</span><input className="w-full bg-transparent outline-none" value={q} onChange={(event) => setQ(event.target.value)} placeholder="Search case number, title, subject, status, investigator…" /></label></div>{cases.length === 0 ? <p className="p-8 text-center text-muted-foreground">No investigation cases are available.</p> : filtered.length === 0 ? <p className="p-8 text-center text-muted-foreground">No cases match this search.</p> : <div className="divide-y">{filtered.map((item) => { const active = item.evidence.filter((e) => e.status !== "Withdrawn"); const stored = item.evidence.filter((e) => e.storage_path); const metadata = item.evidence.filter((e) => !e.storage_path); const latest = item.evidence.reduce<string | null>((current, e) => { const value = e.collected_at ?? e.created_at; return !current || new Date(value) > new Date(current) ? value : current; }, null); return <button key={item.id} onClick={() => onOpen(item.id)} className="w-full p-4 text-left hover:bg-muted/50"><div className="flex flex-wrap justify-between gap-2"><div><p className="font-medium">{item.caseNumber} · {item.title}</p><p className="text-sm text-muted-foreground">{item.primarySubject ?? "Subject not recorded"} · {item.status} · {item.investigatorName || "Investigator not recorded"}</p></div><span className="rounded bg-muted px-2 py-1 text-xs">{active.length} active</span></div><p className="mt-2 text-xs text-muted-foreground">{stored.length} stored file{stored.length === 1 ? "" : "s"} · {metadata.length} metadata-only · Most recent: {latest ? date(latest) : "No evidence"}</p></button>; })}</div>}</section>;
+}
 
-  useEffect(() => {
-    if (!caseId && cases[0]) setCaseId(cases[0].id);
-  }, [caseId, cases]);
+function Workspace({ item, access, uploadOpen, setUploadOpen, preview, setPreview, withdrawal, setWithdrawal, downloading, onBack, onDownload, onRefresh }: { item: EvidenceCaseSummary; access: EvidenceAccess | null; uploadOpen: boolean; setUploadOpen: (open: boolean) => void; preview: EvidenceRow | null; setPreview: (item: EvidenceRow | null) => void; withdrawal: EvidenceRow | null; setWithdrawal: (item: EvidenceRow | null) => void; downloading: string | null; onBack: () => void; onDownload: (item: EvidenceRow) => void; onRefresh: () => Promise<void> }) {
+  const evidence = [...item.evidence].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)); const canWithdraw = (row: EvidenceRow) => access != null && (row.uploaded_by === access.userId || access.canRestore);
+  return <div className="space-y-3"><section className="panel p-4"><button className="mb-3 text-sm text-muted-foreground hover:text-foreground" onClick={onBack}><ArrowLeft className="mr-1 inline size-4" />Back to Cases</button><div className="flex flex-wrap justify-between gap-3"><div><h2 className="text-lg font-semibold">{item.caseNumber} · {item.title}</h2><p className="text-sm text-muted-foreground">{item.primarySubject ?? "Subject not recorded"} · {item.status} · {item.investigatorName || "Investigator not recorded"}</p></div><button className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50" disabled={!access?.canUpload} title={access?.canUpload ? "Upload private evidence" : "A verified evidence-management role is required"} onClick={() => setUploadOpen(true)}><Upload className="mr-1 inline size-4" />Upload evidence</button></div></section><section className="panel divide-y">{evidence.length === 0 ? <p className="p-8 text-center text-muted-foreground">No evidence recorded for this investigation.</p> : evidence.map((row) => <Record key={row.id} item={row} canWithdraw={canWithdraw(row)} canRestore={Boolean(access?.canRestore)} downloading={downloading === row.id} onPreview={() => setPreview(row)} onDownload={() => onDownload(row)} onWithdrawal={() => setWithdrawal(row)} />)}</section><EvidenceUploadDialog caseId={item.id} open={uploadOpen} onOpenChange={setUploadOpen} onUploaded={({ auditWarning }) => { toast.success("Evidence uploaded successfully."); if (auditWarning) toast.warning("Evidence uploaded, but its audit record failed", { description: auditWarning }); void onRefresh(); }} /><EvidencePreviewDialog evidence={preview?.storage_path ? { storagePath: preview.storage_path, title: preview.filename || preview.category, originalFilename: preview.original_filename, mimeType: preview.mime_type } : null} open={Boolean(preview)} onOpenChange={(open) => { if (!open) setPreview(null); }} /><EvidenceWithdrawalDialog evidence={withdrawal ? { id: withdrawal.id, title: withdrawal.filename || withdrawal.category, withdrawn: withdrawal.status === "Withdrawn" } : null} open={Boolean(withdrawal)} canRestore={Boolean(access?.canRestore)} onOpenChange={(open) => { if (!open) setWithdrawal(null); }} onCompleted={() => { toast.success(withdrawal?.status === "Withdrawn" ? "Evidence restored." : "Evidence withdrawn."); void onRefresh(); }} /></div>;
+}
 
-  const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return [...allEvidence]
-      .filter((e) => (type === "all" ? true : e.type === type))
-      .filter((e) =>
-        needle
-          ? `${e.id} ${e.caseId} ${e.label} ${e.source} ${e.locationName} ${e.keywords.join(" ")} ${e.details}`
-              .toLowerCase()
-              .includes(needle)
-          : true,
-      )
-      .sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp));
-  }, [allEvidence, q, type, ]);
-
-  const input =
-    "rounded-md border border-input bg-background/70 px-2.5 py-1.5 text-[12px] outline-none focus:border-cyan/60";
-
-  const submit = () => {
-    const parent = cases.find((c) => c.id === caseId);
-    if (!parent) {
-      toast.error("Select a valid case file first.");
-      return;
-    }
-    if (parent.isDatabaseBacked) {
-      toast.error("Database evidence uploads are not implemented in this read-only phase.");
-      return;
-    }
-    if (label.trim().length < 3) {
-      toast.error("Evidence label must be at least 3 characters.");
-      return;
-    }
-    const preset = LOCATION_PRESETS.find((p) => p.name === location) ?? LOCATION_PRESETS[0]!;
-    const id = `${parent.id}-E${String(parent.evidence.length + 1).padStart(2, "0")}`;
-    if (parent.evidence.some((e) => e.label.trim().toLowerCase() === label.trim().toLowerCase())) {
-      toast.warning("Duplicate label detected — record stored with a distinct evidence ID.");
-    }
-    addEvidence(parent.id, {
-      id,
-      caseId: parent.id,
-      type: evType,
-      label: label.trim(),
-      source: `Synthetic intake ${evType.toUpperCase()}-${id}`,
-      timestamp: new Date(when).toISOString(),
-      locationName: preset.name,
-      lat: preset.lat,
-      lng: preset.lng,
-      reliability,
-      details: `${evType} record submitted from the evidence register.`,
-      interpretation: `Places activity at ${preset.name} at ${fmtDateTime(new Date(when).toISOString())}; weighted at ${reliability}% source reliability.`,
-      keywords: [evType.toLowerCase(), preset.name.split(",")[0]!.toLowerCase()],
-      stage: "PROCESSING",
-    });
-    setLabel("");
-    window.setTimeout(() => updateEvidence(parent.id, id, { stage: "INDEXED" }), 800);
-    window.setTimeout(() => {
-      updateEvidence(parent.id, id, { stage: "CORRELATED" });
-      toast.success(`${id} correlated`, {
-        description: "Timeline, map, AI panel and cross-case graph updated.",
-      });
-    }, 1700);
-  };
-
-  return (
-    <Shell title="Evidence Management" subtitle={`${allEvidence.length} records indexed`}>
-      <div className="grid gap-3 xl:grid-cols-[1fr_320px]">
-        <section className="panel overflow-hidden">
-          <SectionTitle right={<Chip tone="cyan">{filtered.length} shown</Chip>}>
-            Evidence register
-          </SectionTitle>
-          <div className="flex flex-wrap gap-2 border-b border-border/60 p-2.5">
-            <span className="flex min-w-[200px] flex-1 items-center gap-2 rounded-md border border-input bg-background/70 px-2.5 py-1.5">
-              <Search className="size-3.5 text-muted-foreground" />
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search evidence, sources, keywords…"
-                className="w-full bg-transparent text-[12px] outline-none"
-              />
-            </span>
-            <select value={type} onChange={(e) => setType(e.target.value)} className={input}>
-              <option value="all">All types</option>
-              {EVIDENCE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="divide-y divide-border/60">
-            {filtered.length === 0 ? (
-              <p className="p-6 text-center label-xs">No evidence matches this query</p>
-            ) : (
-              filtered.map((e) => (
-                <div key={e.id} className="flex items-center gap-3 px-3 py-2">
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: EVIDENCE_COLOR[e.type] }}
-                  />
-                  <button
-                    onClick={() => setTarget({ kind: "evidence", id: e.id })}
-                    className="min-w-0 flex-1 text-left"
-                  >
-                    <p className="truncate text-[12px] text-foreground">{e.label}</p>
-                    <p className="truncate font-mono text-[10px] text-muted-foreground">
-                      {e.caseId} · {e.id} · {e.locationName || "Location not recorded"} · {fmtDateTime(e.timestamp)} ·{" "}
-                      {e.reliability == null ? "Reliability not recorded" : `${e.reliability}%`}
-                    </p>
-                  </button>
-                  <Chip tone={e.stage === "CORRELATED" ? "success" : e.stage === "INDEXED" ? "cyan" : "amber"}>
-                    {e.stage}
-                  </Chip>
-                  {cases.find((item) => item.id === e.caseId)?.isDatabaseBacked ? (
-                    <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
-                      Read only
-                    </span>
-                  ) : (
-                  <button
-                    onClick={() => {
-                      deleteEvidence(e.caseId, e.id);
-                      toast.success(`${e.id} withdrawn`);
-                    }}
-                    className="text-muted-foreground hover:text-danger"
-                    aria-label={`Withdraw ${e.id}`}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-
-        <section className="panel h-fit overflow-hidden">
-          <SectionTitle>Add evidence</SectionTitle>
-          <div className="space-y-2.5 p-3">
-            <select value={caseId} onChange={(e) => setCaseId(e.target.value)} className={`${input} w-full`}>
-              {cases.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code} · {c.title}
-                </option>
-              ))}
-            </select>
-            <select
-              value={evType}
-              onChange={(e) => setEvType(e.target.value as EvidenceType)}
-              className={`${input} w-full`}
-            >
-              {EVIDENCE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-            <input
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="Evidence label"
-              className={`${input} w-full`}
-            />
-            <select value={location} onChange={(e) => setLocation(e.target.value)} className={`${input} w-full`}>
-              {LOCATION_PRESETS.map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <input
-              type="datetime-local"
-              value={when}
-              onChange={(e) => setWhen(e.target.value)}
-              className={`${input} w-full`}
-            />
-            <label className="block space-y-1">
-              <span className="label-xs">Source reliability · {reliability}%</span>
-              <input
-                type="range"
-                min={10}
-                max={99}
-                value={reliability}
-                onChange={(e) => setReliability(Number(e.target.value))}
-                className="w-full accent-[var(--cyan)]"
-              />
-            </label>
-            <button
-              onClick={submit}
-              disabled={selectedCase?.isDatabaseBacked}
-              className="flex w-full items-center justify-center gap-1.5 rounded-md border border-cyan/50 bg-cyan/15 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:bg-cyan/25 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Plus className="size-3" /> {selectedCase?.isDatabaseBacked ? "Database uploads unavailable" : "Process & correlate"}
-            </button>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              {selectedCase?.isDatabaseBacked
-                ? "Database evidence uploads will be implemented in a separate write-enabled phase."
-                : "Local intake runs PROCESSING → INDEXED → CORRELATED for this browser session."}
-            </p>
-          </div>
-        </section>
-      </div>
-
-      <DetailDrawer
-        target={target}
-        onClose={() => setTarget(null)}
-        onSelectEvidence={(id) => setTarget({ kind: "evidence", id })}
-      />
-    </Shell>
-  );
+function Record({ item, canWithdraw, canRestore, downloading, onPreview, onDownload, onWithdrawal }: { item: EvidenceRow; canWithdraw: boolean; canRestore: boolean; downloading: boolean; onPreview: () => void; onDownload: () => void; onWithdrawal: () => void }) {
+  const hasFile = Boolean(item.storage_path); const withdrawn = item.status === "Withdrawn"; const previewable = item.mime_type?.startsWith("image/") || item.mime_type?.startsWith("video/") || item.mime_type === "application/pdf";
+  return <article className="p-4"><div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-medium">{item.filename || item.category}</h3><p className="text-sm text-muted-foreground">{item.original_filename || "Original filename not recorded"} · {item.category} · {item.mime_type || "Type not recorded"} · {size(item.file_size_bytes)} · {item.status}</p></div><div className="flex flex-wrap gap-2">{hasFile && previewable && <button className="rounded border px-2 py-1 text-sm" onClick={onPreview}><Eye className="mr-1 inline size-4" />Preview</button>}{hasFile && <button className="rounded border px-2 py-1 text-sm disabled:opacity-50" disabled={downloading} onClick={onDownload}><Download className="mr-1 inline size-4" />{downloading ? "Preparing…" : "Download"}</button>}{withdrawn ? canRestore && <button className="rounded border px-2 py-1 text-sm" onClick={onWithdrawal}>Restore</button> : canWithdraw && <button className="rounded border border-destructive/50 px-2 py-1 text-sm text-destructive" onClick={onWithdrawal}>Withdraw</button>}</div></div><dl className="mt-3 grid gap-1 text-sm text-muted-foreground sm:grid-cols-2"><div><dt className="sr-only">Uploader</dt><dd>Uploader: {item.uploaded_by_name || "Not recorded"}</dd></div><div><dt className="sr-only">Created</dt><dd>Uploaded: {date(item.created_at)}</dd></div><div><dt className="sr-only">Collected</dt><dd>Collected: {date(item.collected_at)}</dd></div><div><dt className="sr-only">Storage state</dt><dd>{hasFile ? "Stored private file" : "Metadata record — no file attached"}</dd></div></dl>{item.description && <p className="mt-2 text-sm">{item.description}</p>}</article>;
 }

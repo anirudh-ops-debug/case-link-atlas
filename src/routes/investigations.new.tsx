@@ -1,9 +1,11 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { Check, Plus, Trash2 } from "lucide-react";
+import { Check, Plus, Trash2,Upload } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { uploadEvidenceFile, validateEvidenceFile } from "@/lib/caselink/evidence.repository";
 
 import { Chip, EVIDENCE_COLOR, fmtDateTime } from "@/components/caselink/bits";
+import { EvidenceUploadDialog } from "@/components/caselink/EvidenceUploadDialog";
 import { Shell } from "@/components/caselink/Shell";
 import { CASE_TYPES, EVIDENCE_TYPES, LOCATION_PRESETS, PRIORITIES } from "@/lib/caselink/data";
 import { useCaseLink } from "@/lib/caselink/store";
@@ -91,6 +93,8 @@ export default function NewInvestigationPage() {
   const [evWhen, setEvWhen] = useState(new Date().toISOString().slice(0, 16));
   const [evDetails, setEvDetails] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) =>
     setDraft((d) => ({ ...d, [k]: v }));
@@ -207,6 +211,17 @@ export default function NewInvestigationPage() {
     setErrors([]);
     try {
       const result = await createInvestigation(buildInput());
+
+      if (uploadFile) {
+  await uploadEvidenceFile({
+    caseId: result.caseId,
+    category: "Document",
+    displayLabel: uploadFile.name,
+    description: `Evidence uploaded during investigation intake.`,
+    collectedAt: new Date().toISOString(),
+    file: uploadFile,
+  });
+}
       const runMatching = {
         label: "Run matching",
         onClick: () => void router.navigate({ to: "/engine", search: {} }),
@@ -418,6 +433,29 @@ export default function NewInvestigationPage() {
             >
               <Plus className="size-3" /> Add evidence metadata
             </button>
+
+            <button
+  type="button"
+  onClick={() => document.getElementById("new-investigation-evidence-file")?.click()}
+  className="flex items-center gap-1.5 rounded-md border border-cyan/50 bg-cyan/15 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:bg-cyan/25"
+>
+  <Upload className="size-3" /> Upload evidence file
+</button>
+<input
+  id="new-investigation-evidence-file"
+  type="file"
+  className="hidden"
+  accept=".jpg,.jpeg,.png,.webp,.pdf,.txt,.csv,.doc,.docx,.mp4,.webm,.mov"
+  onChange={(event) => {
+    const selected = event.target.files?.[0] ?? null;
+    setUploadFile(selected);
+  }}
+/>
+{uploadFile ? (
+  <p className="text-[11px] text-muted-foreground">
+    Selected file: <span className="text-foreground">{uploadFile.name}</span>
+  </p>
+) : null}
 
             <div className="space-y-2">
               {evidence.length === 0 ? (
