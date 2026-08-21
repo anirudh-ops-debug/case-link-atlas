@@ -189,23 +189,42 @@ export async function loadConnections(db: DB) {
   const [conns, factors, cases] = await Promise.all([
     db.from("case_connections").select("*").order("score", { ascending: false }),
     db.from("connection_factors").select("*"),
-    db.from("cases").select("id, case_no, title, crime_type, location_name, occurred_at, priority, status"),
+    db
+      .from("cases")
+      .select("id, case_no, title, crime_type, location_name, occurred_at, priority, status, updated_at"),
   ]);
   const err = conns.error ?? factors.error ?? cases.error;
   if (err) throw new Error(err.message);
 
   const caseMap = new Map((cases.data ?? []).map((c: any) => [c.id, c]));
-  return (conns.data ?? []).map((c: any) => ({
-    ...c,
-    score: Number(c.score),
-    caseA: caseMap.get(c.case_a_id) ?? null,
-    caseB: caseMap.get(c.case_b_id) ?? null,
-    factors: ((factors.data ?? []) as any[])
-      .filter((f) => f.connection_id === c.id)
-      .map((f) => ({ ...f, similarity: f.similarity == null ? null : Number(f.similarity), weight: Number(f.weight) }))
-      .sort((a, b) => b.weight - a.weight),
-  }));
+  return (conns.data ?? []).map((c: any) => {
+    const a = caseMap.get(c.case_a_id) ?? null;
+    const b = caseMap.get(c.case_b_id) ?? null;
+    const computed = new Date(c.computed_at).getTime();
+    // Freshness: either file edited after the score was computed ⇒ needs recalculation.
+    const newest = Math.max(
+      a?.updated_at ? new Date(a.updated_at).getTime() : 0,
+      b?.updated_at ? new Date(b.updated_at).getTime() : 0,
+    );
+    return {
+      ...c,
+      score: Number(c.score),
+      caseA: a,
+      caseB: b,
+      stale: Number.isFinite(computed) && newest > computed,
+      factors: ((factors.data ?? []) as any[])
+        .filter((f) => f.connection_id === c.id)
+        .map((f) => ({
+          ...f,
+          similarity: f.similarity == null ? null : Number(f.similarity),
+          weight: Number(f.weight),
+          sources: (f.sources ?? []) as string[],
+        }))
+        .sort((x, y) => y.weight - x.weight),
+    };
+  });
 }
+
 
 export async function recordVerdict(
   db: DB,
