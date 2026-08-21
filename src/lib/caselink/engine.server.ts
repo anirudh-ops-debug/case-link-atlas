@@ -36,14 +36,36 @@ export async function loadCorpus(db: DB): Promise<CaseBundle[]> {
 export interface AnalysisRun {
   cases: number;
   pairsEvaluated: number;
+  candidatePairs: number;
+  skippedPairs: number;
+  belowThreshold: number;
   stored: number;
   strong: number;
+  high: number;
+  moderate: number;
+  weak: number;
+  low: number;
+  computedAt: string;
+  focusCaseNo: string | null;
+  leads: ScoredPair[];
 }
 
-/** Recomputes the whole correlation layer, preserving human verdicts. */
-export async function runCorrelation(db: DB, actorName: string, actorId: string): Promise<AnalysisRun> {
+/**
+ * Recomputes the correlation layer, preserving human verdicts.
+ * With focusCaseId only pairs involving that file are recomputed.
+ */
+export async function runCorrelation(
+  db: DB,
+  actorName: string,
+  actorId: string,
+  focusCaseId?: string,
+): Promise<AnalysisRun> {
   const corpus = await loadCorpus(db);
-  const pairs: ScoredPair[] = scoreCorpus(corpus, 20);
+  const focus = focusCaseId ? corpus.find((c) => c.id === focusCaseId) ?? null : null;
+  if (focusCaseId && !focus) throw new Error("Case not found in the database corpus.");
+
+  const analysis = analyseCorpus(corpus, focusCaseId ? { minScore: 20, focusCaseId } : { minScore: 20 });
+  const pairs: ScoredPair[] = analysis.pairs;
 
   const existing = await db.from("case_connections").select("id, case_a_id, case_b_id, verdict");
   if (existing.error) throw new Error(existing.error.message);
@@ -54,12 +76,16 @@ export async function runCorrelation(db: DB, actorName: string, actorId: string)
     prior.set(keyOf(row.case_a_id, row.case_b_id), { id: row.id, verdict: row.verdict });
   }
 
-  // Drop stale pending rows; confirmed/rejected verdicts are never overwritten.
+  // Drop stale pending rows; recorded verdicts and their ai_score_at_verdict are never touched.
   const keepKeys = new Set(pairs.map((p) => keyOf(p.caseAId, p.caseBId)));
+  const inScope = (key: string) => !focusCaseId || key.includes(focusCaseId);
   const staleIds = [...prior.entries()]
-    .filter(([k, v]) => v.verdict === "pending" && !keepKeys.has(k))
+    .filter(([k, v]) => v.verdict === "pending" && !keepKeys.has(k) && inScope(k))
     .map(([, v]) => v.id);
   if (staleIds.length) await db.from("case_connections").delete().in("id", staleIds);
+
+  const caseNoById = new Map(corpus.map((c) => [c.id, c.case_no]));
+
 
   let stored = 0;
   for (const p of pairs) {
