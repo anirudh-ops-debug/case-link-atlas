@@ -7,9 +7,17 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { User } from "@supabase/supabase-js";
 
-import { SEED_CASES } from "./data";
-import { buildLinks, inferDirection } from "./matching";
+import { supabase } from "@/integrations/supabase/client";
+
+import {
+  createInvestigation as createDatabaseInvestigation,
+  loadInvestigations,
+  type CreateInvestigationInput,
+  type CreateInvestigationResult,
+} from "./investigations.repository";
+import { inferDirection } from "./matching";
 import type {
   AuditEntry,
   CaseLink,
@@ -20,10 +28,17 @@ import type {
   Verdict,
 } from "./types";
 
-const CASES_KEY = "caselink.cases.v1";
 const VERDICTS_KEY = "caselink.verdicts.v1";
-const SESSION_KEY = "caselink.session.v1";
+const ROLE_SELECTION_KEY = "caselink.auth-role.v1";
 const AUDIT_KEY = "caselink.audit.v1";
+
+export type DatabaseRole = "investigator" | "senior_investigator" | "administrator";
+
+export const DATABASE_ROLE_TO_ROLE: Record<DatabaseRole, Role> = {
+  investigator: "INVESTIGATOR",
+  senior_investigator: "SUPERVISOR",
+  administrator: "ADMIN",
+};
 
 export interface FeedItem {
   id: string;
@@ -33,6 +48,8 @@ export interface FeedItem {
 }
 
 export interface Session {
+  userId: string;
+  email: string;
   investigatorId: string;
   name: string;
   unit: string;
@@ -59,6 +76,10 @@ export const ROLE_NOTES: Record<Role, string> = {
 
 interface Ctx {
   ready: boolean;
+  authError: string | null;
+  casesLoading: boolean;
+  casesError: string | null;
+  retryCases: () => void;
   cases: Investigation[];
   links: CaseLink[];
   verdicts: Record<string, Verdict>;
@@ -67,8 +88,13 @@ interface Ctx {
   session: Session | null;
   can: (p: Permission) => boolean;
   logAudit: (action: string, subject: string, detail: string) => void;
-  signIn: (investigatorId: string, role?: Role) => void;
-  signOut: () => void;
+  signIn: (email: string, password: string, role: DatabaseRole) => Promise<void>;
+  signUp: (email: string, password: string, role: DatabaseRole) => Promise<{ requiresEmailConfirmation: boolean }>;
+  signOut: () => Promise<void>;
+  clearAuthError: () => void;
+  createInvestigation: (
+    input: CreateInvestigationInput,
+  ) => Promise<CreateInvestigationResult & { reloadError: string | null }>;
   getCase: (id: string) => Investigation | undefined;
   addCase: (c: Investigation) => void;
   updateCase: (id: string, patch: Partial<Investigation>) => void;
@@ -104,27 +130,148 @@ function write(key: string, value: unknown) {
   }
 }
 
+function remove(key: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(key);
+}
+
+function isDatabaseRole(value: string | null): value is DatabaseRole {
+  return value === "investigator" || value === "senior_investigator" || value === "administrator";
+}
+
+function readSelectedRole(): DatabaseRole | undefined {
+  if (typeof window === "undefined") return undefined;
+  const value = window.localStorage.getItem(ROLE_SELECTION_KEY);
+  return isDatabaseRole(value) ? value : undefined;
+}
+
+async function loadVerifiedSession(user: User, selectedRole?: DatabaseRole): Promise<Session> {
+  const [rolesResult, profileResult] = await Promise.all([
+    supabase.from("user_roles").select("role").eq("user_id", user.id),
+    supabase.from("profiles").select("full_name, badge_no, unit").eq("id", user.id).maybeSingle(),
+  ]);
+
+  if (rolesResult.error) throw new Error(rolesResult.error.message);
+  if (profileResult.error) throw new Error(profileResult.error.message);
+
+  const assignedRoles = (rolesResult.data ?? []).map((row) => row.role);
+  const databaseRole = selectedRole ?? assignedRoles[0];
+  if (!databaseRole || !assignedRoles.includes(databaseRole)) {
+    throw new Error("Your account is not authorized for the selected role.");
+  }
+
+  const profile = profileResult.data;
+  const email = user.email ?? "";
+  return {
+    userId: user.id,
+    email,
+    investigatorId: profile?.badge_no || email || user.id,
+    name: profile?.full_name ?? email.split("@")[0] ?? "Investigator",
+    unit: profile?.unit ?? "Central Intelligence Cell",
+    role: DATABASE_ROLE_TO_ROLE[databaseRole],
+    at: new Date().toISOString(),
+  };
+}
+
 export function CaseLinkProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
-  const [cases, setCases] = useState<Investigation[]>(SEED_CASES);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [cases, setCases] = useState<Investigation[]>([]);
+  const [databaseLinks, setDatabaseLinks] = useState<CaseLink[]>([]);
+  const [casesLoading, setCasesLoading] = useState(false);
+  const [casesError, setCasesError] = useState<string | null>(null);
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({});
   const [session, setSession] = useState<Session | null>(null);
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
 
-  // hydrate from storage after mount (avoids SSR mismatch)
+  const establishSession = useCallback(async (user: User, selectedRole?: DatabaseRole) => {
+    try {
+      const verified = await loadVerifiedSession(user, selectedRole);
+      setSession(verified);
+      setAuthError(null);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to verify account authorization.";
+      setSession(null);
+      setAuthError(message);
+      remove(ROLE_SELECTION_KEY);
+      await supabase.auth.signOut();
+      return false;
+    }
+  }, []);
+
+  // Hydrate non-case local modules and restore the real Supabase session after mount.
   useEffect(() => {
-    const stored = read<Investigation[] | null>(CASES_KEY, null);
-    if (stored && Array.isArray(stored) && stored.length) setCases(stored);
     setVerdicts(read<Record<string, Verdict>>(VERDICTS_KEY, {}));
-    setSession(read<Session | null>(SESSION_KEY, null));
     setAudit(read<AuditEntry[]>(AUDIT_KEY, []));
-    setReady(true);
+
+    let active = true;
+    const restore = async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (!active) return;
+      if (error) {
+        setAuthError(error.message);
+        setSession(null);
+      } else if (data.session?.user) {
+        await establishSession(data.session.user, readSelectedRole());
+      } else {
+        setSession(null);
+      }
+      if (active) setReady(true);
+    };
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      window.setTimeout(() => {
+        if (!active) return;
+        if (!nextSession?.user) {
+          setSession(null);
+          return;
+        }
+        void establishSession(nextSession.user, readSelectedRole());
+      }, 0);
+    });
+
+    void restore();
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [establishSession]);
+
+  const fetchCases = useCallback(async (): Promise<string | null> => {
+    setCasesLoading(true);
+    setCasesError(null);
+    try {
+      const result = await loadInvestigations(supabase);
+      setCases(result.cases);
+      setDatabaseLinks(result.links);
+      return null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load investigations.";
+      setCases([]);
+      setDatabaseLinks([]);
+      setCasesError(message);
+      return message;
+    } finally {
+      setCasesLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (ready) write(CASES_KEY, cases);
-  }, [cases, ready]);
+    if (session) {
+      void fetchCases();
+    } else {
+      setCases([]);
+      setDatabaseLinks([]);
+      setCasesError(null);
+      setCasesLoading(false);
+    }
+  }, [fetchCases, session]);
+
+  const retryCases = useCallback(() => {
+    if (session) void fetchCases();
+  }, [fetchCases, session]);
   useEffect(() => {
     if (ready) write(VERDICTS_KEY, verdicts);
   }, [verdicts, ready]);
@@ -173,7 +320,7 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
   );
 
 
-  const links = useMemo(() => buildLinks(cases), [cases]);
+  const links = databaseLinks;
 
   const allEvidence = useMemo(() => cases.flatMap((c) => c.evidence), [cases]);
 
@@ -287,51 +434,76 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
     [links],
   );
 
-  const signIn = useCallback(
-    (investigatorId: string, role: Role = "INVESTIGATOR") => {
-      const s: Session = {
-        investigatorId: investigatorId.toUpperCase(),
-        name: "Insp. A. Vetrivel",
-        unit: "Central Intelligence Cell · Chennai",
-        role,
-        at: new Date().toISOString(),
-      };
-      setSession(s);
-      write(SESSION_KEY, s);
-      log("system", `Secure session opened for ${s.investigatorId} · ${role}`);
-      setAudit((prev) =>
-        [
-          {
-            id: `AUD-${Date.now()}-LOGIN`,
-            at: new Date().toISOString(),
-            actor: s.investigatorId,
-            role,
-            action: "Signed in",
-            subject: "Session",
-            detail: `Secure session established with ${role} authorization scope`,
-          },
-          ...prev,
-        ].slice(0, 300),
-      );
-    },
-    [log],
-  );
+  const signIn = useCallback(async (email: string, password: string, role: DatabaseRole) => {
+    setAuthError(null);
+    window.localStorage.setItem(ROLE_SELECTION_KEY, role);
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      remove(ROLE_SELECTION_KEY);
+      throw error;
+    }
+    const authorized = await establishSession(data.user, role);
+    if (!authorized) throw new Error("Your account is not authorized for the selected role.");
+  }, [establishSession]);
 
-  const signOut = useCallback(() => {
+  const signUp = useCallback(async (email: string, password: string, role: DatabaseRole) => {
+    if (role !== "investigator") {
+      throw new Error("An administrator must first assign the Senior Investigator or Administrator role.");
+    }
+    setAuthError(null);
+    window.localStorage.setItem(ROLE_SELECTION_KEY, "investigator");
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: email.split("@")[0] } },
+    });
+    if (error) {
+      remove(ROLE_SELECTION_KEY);
+      throw error;
+    }
+    if (data.session && data.user) {
+      const authorized = await establishSession(data.user, "investigator");
+      if (!authorized) throw new Error("Your account is not authorized for the selected role.");
+    }
+    return { requiresEmailConfirmation: !data.session };
+  }, [establishSession]);
+
+  const signOut = useCallback(async () => {
     logAudit("Signed out", "Session", "Secure session closed");
+    const { error } = await supabase.auth.signOut();
     setSession(null);
-    write(SESSION_KEY, null);
+    remove(ROLE_SELECTION_KEY);
+    if (error) throw error;
   }, [logAudit]);
 
+  const clearAuthError = useCallback(() => setAuthError(null), []);
+
+  const createInvestigation = useCallback(async (input: CreateInvestigationInput) => {
+    if (!session) throw new Error("You must be signed in to create an investigation.");
+    if (!ROLE_PERMISSIONS[session.role].includes("case.write")) {
+      throw new Error("Your assigned role is not permitted to create investigations.");
+    }
+    const result = await createDatabaseInvestigation(supabase, input, {
+      userId: session.userId,
+      name: session.name,
+    });
+    const reloadError = await fetchCases();
+    return { ...result, reloadError };
+  }, [fetchCases, session]);
+
   const resetDemo = useCallback(() => {
-    setCases(SEED_CASES);
     setVerdicts({});
-    log("system", "Synthetic dataset restored to baseline");
-  }, [log]);
+    void fetchCases();
+    log("system", "Database-backed synthetic dataset reloaded");
+  }, [fetchCases, log]);
 
   const value = useMemo<Ctx>(
     () => ({
       ready,
+      authError,
+      casesLoading,
+      casesError,
+      retryCases,
       cases,
       links,
       verdicts,
@@ -341,7 +513,10 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
       can,
       logAudit,
       signIn,
+      signUp,
       signOut,
+      clearAuthError,
+      createInvestigation,
 
       getCase,
       addCase,
@@ -357,6 +532,10 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
     }),
     [
       ready,
+      authError,
+      casesLoading,
+      casesError,
+      retryCases,
       cases,
       links,
       verdicts,
@@ -367,7 +546,10 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
       logAudit,
 
       signIn,
+      signUp,
       signOut,
+      clearAuthError,
+      createInvestigation,
       getCase,
       addCase,
       updateCase,

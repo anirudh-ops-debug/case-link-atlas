@@ -26,7 +26,9 @@ export function TacticalMap({
   const [hoverNode, setHoverNode] = useState<string | null>(null);
 
   const ordered = useMemo(
-    () => [...evidence].sort((a, b) => +new Date(a.timestamp) - +new Date(b.timestamp)),
+    () => evidence
+      .filter((item): item is Evidence & { lat: number; lng: number } => item.lat != null && item.lng != null)
+      .sort((a, b) => +new Date(a.timestamp) - +new Date(b.timestamp)),
     [evidence],
   );
 
@@ -53,17 +55,19 @@ export function TacticalMap({
     const km = haversineKm(prev.e.lat, prev.e.lng, p.e.lat, p.e.lng);
     const mins = (+new Date(p.e.timestamp) - +new Date(prev.e.timestamp)) / 60000;
     const speed = mins > 0 ? (km / mins) * 60 : 0;
-    const confidence = Math.round(
-      Math.max(
-        18,
-        Math.min(
-          95,
-          (prev.e.reliability + p.e.reliability) / 2 -
-            Math.abs(speed - 34) * 0.55 -
-            (mins > 720 ? 18 : 0),
-        ),
-      ),
-    );
+    const confidence = prev.e.reliability != null && p.e.reliability != null
+      ? Math.round(
+          Math.max(
+            18,
+            Math.min(
+              95,
+              (prev.e.reliability + p.e.reliability) / 2 -
+                Math.abs(speed - 34) * 0.55 -
+                (mins > 720 ? 18 : 0),
+            ),
+          ),
+        )
+      : null;
     return { from: prev, to: p, km, mins, speed, confidence, index: i };
   });
 
@@ -134,7 +138,7 @@ export function TacticalMap({
                 fontSize="11"
                 fill={active ? "var(--amber)" : "var(--muted-foreground)"}
               >
-                {s.confidence}%
+                {s.confidence == null ? "—" : `${s.confidence}%`}
               </text>
             </g>
           );
@@ -194,7 +198,8 @@ export function TacticalMap({
           {hovered ? (
             <>
               <p className="label-xs text-cyan">
-                Route link {hovered.from.e.id} → {hovered.to.e.id} · {hovered.confidence}% confidence
+                Route link {hovered.from.e.id} → {hovered.to.e.id}
+                {hovered.confidence == null ? "" : ` · ${hovered.confidence}% confidence`}
               </p>
               <p className="mt-1 text-xs leading-relaxed text-foreground">
                 Why this connection exists: {hovered.from.e.type} evidence at{" "}
@@ -202,8 +207,9 @@ export function TacticalMap({
                 {hovered.to.e.type} evidence at {hovered.to.e.locationName},{" "}
                 {hovered.km.toFixed(2)} km away. The implied {hovered.speed.toFixed(0)} km/h is{" "}
                 {hovered.speed > 18 ? "consistent with vehicle travel" : "consistent with movement on foot or local transit"}
-                , and mean source reliability across the pair is{" "}
-                {Math.round((hovered.from.e.reliability + hovered.to.e.reliability) / 2)}%.
+                .{hovered.from.e.reliability != null && hovered.to.e.reliability != null ? (
+                  <> Mean source reliability is {Math.round((hovered.from.e.reliability + hovered.to.e.reliability) / 2)}%.</>
+                ) : null}
               </p>
             </>
           ) : hoveredNode ? (

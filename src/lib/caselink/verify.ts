@@ -63,6 +63,7 @@ export function doubleVerify(
   const pair: string[] = [];
   for (const eA of a.evidence)
     for (const eB of b.evidence) {
+      if (eA.lat == null || eA.lng == null || eB.lat == null || eB.lng == null) continue;
       const d = haversineKm(eA.lat, eA.lng, eB.lat, eB.lng);
       if (d < km) {
         km = d;

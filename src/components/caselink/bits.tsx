@@ -6,6 +6,7 @@ import {
   Image as ImageIcon,
   Bus,
   MapPin,
+  FileQuestion,
   type LucideIcon,
 } from "lucide-react";
 
@@ -19,6 +20,7 @@ export const EVIDENCE_ICON: Record<EvidenceType, LucideIcon> = {
   Photo: ImageIcon,
   Transport: Bus,
   Location: MapPin,
+  Other: FileQuestion,
 };
 
 export const EVIDENCE_COLOR: Record<EvidenceType, string> = {
@@ -28,6 +30,7 @@ export const EVIDENCE_COLOR: Record<EvidenceType, string> = {
   Photo: "oklch(0.7 0.1 300)",
   Transport: "oklch(0.75 0.09 240)",
   Location: "var(--danger)",
+  Other: "var(--muted-foreground)",
 };
 
 export function fmtDateTime(iso: string) {

@@ -1,4 +1,4 @@
-import type { CaseLink, Investigation, LinkReason } from "./types";
+import type { CaseLink, Evidence, Investigation, LinkReason } from "./types";
 
 const STOP = new Set([
   "the","and","for","with","from","near","that","this","were","was","into","onto",
@@ -160,7 +160,9 @@ export function compareCases(
   let best = Infinity;
   let bestPair: [string, string] | null = null;
   for (const eA of a.evidence) {
+    if (eA.lat == null || eA.lng == null) continue;
     for (const eB of b.evidence) {
+      if (eB.lat == null || eB.lng == null) continue;
       const d = haversineKm(eA.lat, eA.lng, eB.lat, eB.lng);
       if (d < best) {
         best = d;
@@ -287,7 +289,9 @@ export interface Direction {
 
 /** Most probable direction of travel / progression for a single case. */
 export function inferDirection(c: Investigation): Direction {
-  const ordered = [...c.evidence].sort(
+  const ordered = c.evidence
+    .filter((item): item is Evidence & { lat: number; lng: number } => item.lat != null && item.lng != null)
+    .sort(
     (a, b) => +new Date(a.timestamp) - +new Date(b.timestamp),
   );
   if (ordered.length < 2) {
@@ -318,12 +322,16 @@ export function inferDirection(c: Investigation): Direction {
   const hours = (+new Date(last.timestamp) - +new Date(first.timestamp)) / 36e5;
   const speed = hours > 0 ? distance / hours : 0;
 
-  const avgRel =
-    ordered.reduce((s, e) => s + e.reliability, 0) / ordered.length;
+  const recordedReliability = ordered
+    .map((item) => item.reliability)
+    .filter((value): value is number => value != null);
+  const avgRel = recordedReliability.length
+    ? recordedReliability.reduce((sum, value) => sum + value, 0) / recordedReliability.length
+    : 0;
   const typeDiversity = new Set(ordered.map((e) => e.type)).size;
 
   const breakdown = [
-    { label: "Source reliability", value: Math.round(avgRel) },
+    ...(recordedReliability.length ? [{ label: "Source reliability", value: Math.round(avgRel) }] : []),
     { label: "Evidence corroboration", value: Math.min(96, ordered.length * 17) },
     { label: "Modality diversity", value: Math.min(96, typeDiversity * 22) },
     {
@@ -340,16 +348,18 @@ export function inferDirection(c: Investigation): Direction {
   );
 
   return {
-    heading: `Probable movement ${compass} toward ${last.locationName}`,
+    heading: `Probable movement ${compass}${last.locationName ? ` toward ${last.locationName}` : ""}`,
     confidence,
     breakdown,
     supporting: ordered.slice(-3).map((e) => e.id),
     explanation:
-      `The earliest anchor is ${first.type} evidence at ${first.locationName} (${first.id}); the latest is ` +
-      `${last.type} evidence at ${last.locationName} (${last.id}). That is ${distance.toFixed(1)} km over ` +
+      `The earliest anchor is ${first.type} evidence${first.locationName ? ` at ${first.locationName}` : ""} (${first.id}); the latest is ` +
+      `${last.type} evidence${last.locationName ? ` at ${last.locationName}` : ""} (${last.id}). That is ${distance.toFixed(1)} km over ` +
       `${hours.toFixed(1)} h, an implied average of ${speed.toFixed(0)} km/h — consistent with ` +
       `${speed > 18 ? "vehicle-assisted travel" : "movement on foot or by local transit"}. ` +
-      `${typeDiversity} independent evidence modalities agree on the ${compass} vector, and mean source ` +
-      `reliability is ${avgRel.toFixed(0)}%. Confidence is reduced where a single modality dominates.`,
+      `${typeDiversity} independent evidence modalities agree on the ${compass} vector. ` +
+      (recordedReliability.length
+        ? `Mean source reliability is ${avgRel.toFixed(0)}%. Confidence is reduced where a single modality dominates.`
+        : "Source reliability was not recorded, so it was excluded from the confidence breakdown."),
   };
 }

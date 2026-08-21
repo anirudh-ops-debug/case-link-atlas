@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import { AIPanel } from "@/components/caselink/AIPanel";
@@ -30,10 +31,38 @@ export const Route = createFileRoute("/investigations/$caseId")({
 
 function InvestigationView() {
   const { caseId } = Route.useParams();
-  const { getCase, linksFor, cases } = useCaseLink();
+  const { getCase, linksFor, cases, casesError, casesLoading, retryCases } = useCaseLink();
   const investigation = getCase(caseId);
   const [selected, setSelected] = useState<string | null>(null);
   const [target, setTarget] = useState<DrawerTarget | null>(null);
+
+  if (casesLoading) {
+    return (
+      <Shell title="Loading investigation" subtitle="Database register">
+        <div className="panel p-6 text-center font-mono text-xs text-muted-foreground">
+          Loading database case and related records…
+        </div>
+      </Shell>
+    );
+  }
+
+  if (casesError) {
+    return (
+      <Shell title="Investigation unavailable" subtitle="Database register">
+        <div className="panel flex flex-col items-center gap-3 p-8 text-center">
+          <AlertTriangle className="size-6 text-danger" />
+          <p className="font-mono text-[11px] text-danger">{casesError}</p>
+          <button
+            type="button"
+            onClick={retryCases}
+            className="flex items-center gap-2 rounded-md border border-cyan/50 bg-cyan/10 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-cyan"
+          >
+            <RefreshCw className="size-3" /> Retry
+          </button>
+        </div>
+      </Shell>
+    );
+  }
 
   if (!investigation) {
     return (

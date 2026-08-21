@@ -64,11 +64,11 @@ function ProfilePage() {
             <button
               onClick={() => {
                 resetDemo();
-                toast.success("Corpus restored to baseline demonstration state");
+                toast.success("Database-backed synthetic corpus reloaded");
               }}
               className="w-full rounded-md border border-danger/40 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-danger hover:bg-danger/10"
             >
-              Reset demonstration corpus
+              Reload database corpus
             </button>
           </div>
         </section>

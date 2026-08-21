@@ -33,10 +33,10 @@ export interface FactorResult {
 }
 
 export type Classification =
-  | "Strong link"
-  | "Probable link"
-  | "Weak signal"
-  | "No meaningful link";
+  | "High Potential Connection"
+  | "Moderate Potential Connection"
+  | "Weak Potential Connection"
+  | "Low Relevance";
 
 export interface ScoredPair {
   caseAId: string;
@@ -384,10 +384,10 @@ function factorOther(a: CaseBundle, b: CaseBundle): FactorResult {
 }
 
 export function classify(score: number): Classification {
-  if (score >= 75) return "Strong link";
-  if (score >= 50) return "Probable link";
-  if (score >= 28) return "Weak signal";
-  return "No meaningful link";
+  if (score >= 85) return "High Potential Connection";
+  if (score >= 70) return "Moderate Potential Connection";
+  if (score >= 50) return "Weak Potential Connection";
+  return "Low Relevance";
 }
 
 export function scorePair(a: CaseBundle, b: CaseBundle): ScoredPair {

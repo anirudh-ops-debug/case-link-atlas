@@ -125,7 +125,7 @@ export function AIPanel({
                     <span>
                       {e.id} · {e.type}
                     </span>
-                    <span>{e.reliability}%</span>
+                    <span>{e.reliability == null ? "Reliability not recorded" : `${e.reliability}%`}</span>
                   </p>
                   <p className="mt-0.5 truncate text-[12px] text-foreground">{e.label}</p>
                 </button>

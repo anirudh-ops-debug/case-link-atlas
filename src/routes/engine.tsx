@@ -43,6 +43,15 @@ export const Route = createFileRoute("/engine")({
 
 const pct = (n: number | null) => (n == null ? "—" : `${Math.round(n * 100)}%`);
 
+interface ConnectionFactor {
+  id: string;
+  factor: string;
+  similarity: number | null;
+  weight: number;
+  insufficient_data: boolean;
+  detail: string;
+}
+
 const VERDICTS = [
   { key: "confirmed" as const, label: "Confirm link", icon: CheckCircle2, cls: "border-success/50 text-success hover:bg-success/10" },
   { key: "rejected" as const, label: "Reject", icon: CircleSlash, cls: "border-danger/50 text-danger hover:bg-danger/10" },
@@ -125,6 +134,21 @@ function EnginePage() {
 
         {connections.isLoading ? (
           <p className="panel p-4 font-mono text-xs text-muted-foreground">Loading correlation layer…</p>
+        ) : connections.isError ? (
+          <div className="panel flex flex-col items-center gap-3 p-8 text-center">
+            <AlertTriangle className="size-6 text-danger" />
+            <p className="text-sm font-medium text-danger">Could not load correlations</p>
+            <p className="max-w-lg font-mono text-[11px] text-muted-foreground">
+              {connections.error instanceof Error ? connections.error.message : "Unknown request error"}
+            </p>
+            <button
+              type="button"
+              onClick={() => void connections.refetch()}
+              className="rounded-md border border-cyan/50 bg-cyan/10 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-cyan hover:bg-cyan/20"
+            >
+              Retry
+            </button>
+          </div>
         ) : rows.length === 0 ? (
           <div className="panel flex flex-col items-center gap-3 p-10 text-center">
             <Activity className="size-6 text-cyan" />
@@ -137,7 +161,7 @@ function EnginePage() {
           <div className="space-y-3">
             {rows.map((c) => {
               const isOpen = open === c.id;
-              const strong = c.score >= 75;
+              const strong = c.score >= 85;
               return (
                 <article key={c.id} className="panel overflow-hidden">
                   <button
@@ -189,7 +213,7 @@ function EnginePage() {
                       <p className="text-[12.5px] leading-relaxed text-muted-foreground">{c.explanation}</p>
 
                       <div className="space-y-1.5">
-                        {c.factors.map((f) => (
+                        {c.factors.map((f: ConnectionFactor) => (
                           <div key={f.id} className="rounded-sm border border-border/70 bg-surface-2/40 p-2.5">
                             <div className="flex items-center gap-2">
                               <span className="w-40 shrink-0 text-[12px]">{f.factor}</span>
