@@ -138,26 +138,51 @@ export async function runCorrelation(
         weight: f.weight,
         insufficient_data: f.insufficientData,
         detail: f.detail,
-        sources: f.sources,
+        // Real matched values, plus the two case references the factor drew on.
+        sources:
+          !f.insufficientData && (f.similarity ?? 0) >= 0.45
+            ? [
+                ...f.sources,
+                `case:${caseNoById.get(p.caseAId) ?? p.caseAId}`,
+                `case:${caseNoById.get(p.caseBId) ?? p.caseBId}`,
+              ]
+            : f.sources,
       })),
     );
     stored += 1;
   }
 
+  const count = (lo: number, hi: number) => pairs.filter((p) => p.score >= lo && p.score < hi).length;
+  const computedAt = new Date().toISOString();
+
   await db.from("audit_logs").insert({
     actor_id: actorId,
     actor_name: actorName,
     action_type: "analysis",
-    action: "Ran cross-case correlation engine",
-    detail: `${corpus.length} files, ${pairs.length} candidate links stored (weighted 7-factor model).`,
+    action: focus
+      ? `Searched for hidden connections on ${focus.case_no}`
+      : "Ran cross-case correlation engine",
+    detail: `${corpus.length} files considered, ${analysis.candidatePairs} candidate pairs selected, ${analysis.skippedPairs} skipped as irrelevant, ${pairs.length} links stored (weighted 7-factor model).`,
+    ...(focus ? { case_id: focus.id } : {}),
   });
 
   return {
     cases: corpus.length,
-    pairsEvaluated: (corpus.length * (corpus.length - 1)) / 2,
+    pairsEvaluated: analysis.pairsPossible,
+    candidatePairs: analysis.candidatePairs,
+    skippedPairs: analysis.skippedPairs,
+    belowThreshold: analysis.belowThreshold,
     stored,
     strong: pairs.filter((p) => p.score >= 85).length,
+    high: pairs.filter((p) => p.score >= 85).length,
+    moderate: count(70, 85),
+    weak: count(50, 70),
+    low: pairs.filter((p) => p.score < 50).length,
+    computedAt,
+    focusCaseNo: focus?.case_no ?? null,
+    leads: pairs,
   };
+
 }
 
 export async function loadConnections(db: DB) {
