@@ -190,7 +190,7 @@ export function AIPanel({
                       <VerdictBadge verdict={verdict} />
                       <Link
                         to="/links"
-                        search={{ link: l.id }}
+                        search={{ case: investigation.id, link: l.id }}
                         className="font-mono text-[10px] uppercase tracking-[0.1em] text-cyan hover:underline"
                       >
                         Open in graph

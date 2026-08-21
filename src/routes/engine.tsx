@@ -79,6 +79,7 @@ interface RunSummary {
   moderate: number;
   weak: number;
   low: number;
+  excludedBelow60?: number;
   computedAt: string;
   focusCaseNo: string | null;
 }
@@ -126,13 +127,15 @@ function EnginePage() {
     queryFn: () => fetchCorpus(),
   });
 
-  const applySummary = (r: RunSummary & { leads?: { caseAId: string; caseBId: string }[] }) => {
-    setSummary(r);
-    setLeadIds((r.leads ?? []).map((l) => [l.caseAId, l.caseBId].sort().join("::")));
+  const applySummary = (r: RunSummary & { leads?: { caseAId: string; caseBId: string; score: number }[] }) => {
+    const visibleLeads = (r.leads ?? []).filter((lead) => lead.score >= 60);
+    const excludedBelow60 = r.belowThreshold + (r.leads ?? []).filter((lead) => lead.score < 60).length;
+    setSummary({ ...r, excludedBelow60 });
+    setLeadIds(visibleLeads.map((lead) => [lead.caseAId, lead.caseBId].sort().join("::")));
     toast.success(
       r.focusCaseNo ? `Hidden-connection search complete · ${r.focusCaseNo}` : `Analysis complete`,
       {
-        description: `${r.candidatePairs} candidates examined · ${r.stored} meaningful connections stored · ${r.belowThreshold} low-relevance pairs excluded`,
+        description: `${r.candidatePairs} candidates examined · ${visibleLeads.length} meaningful connections shown · ${excludedBelow60} low-relevance comparisons excluded`,
       },
     );
     void qc.invalidateQueries({ queryKey: ["connections"] });
@@ -174,12 +177,17 @@ function EnginePage() {
       }),
   });
 
-  const allRows = (connections.data ?? []).filter((connection) => connection.score >= 50);
+  const allRows = (connections.data ?? []).filter((connection) => connection.score >= 60);
   const rows = leadIds
     ? allRows.filter((c) => leadIds.includes([c.case_a_id, c.case_b_id].sort().join("::")))
     : allRows;
   const files = (corpus.data ?? []) as { id: string; case_no: string; title: string }[];
   const busy = run.isPending || runOne.isPending;
+  const visibleCounts = {
+    high: rows.filter((connection) => connection.score >= 85).length,
+    moderate: rows.filter((connection) => connection.score >= 70 && connection.score < 85).length,
+    weak: rows.filter((connection) => connection.score >= 60 && connection.score < 70).length,
+  };
 
   return (
     <Shell
@@ -263,10 +271,10 @@ function EnginePage() {
                 ["Pairs examined", summary.pairsEvaluated],
                 ["Candidates examined", summary.candidatePairs],
                 ["Skipped as irrelevant", summary.skippedPairs],
-                ["Meaningful stored", summary.stored],
-                ["High", summary.high],
-                ["Moderate", summary.moderate],
-                ["Weak", summary.weak],
+                ["Connections shown", rows.length],
+                ["High", visibleCounts.high],
+                ["Moderate", visibleCounts.moderate],
+                ["Weak", visibleCounts.weak],
               ].map(([label, value]) => (
                 <div key={String(label)} className="rounded-sm border border-border/70 bg-surface-2/50 px-2.5 py-2">
                   <p className="font-mono text-[15px] text-cyan">{value as number}</p>
@@ -275,8 +283,8 @@ function EnginePage() {
               ))}
             </div>
             <p className="mt-3 font-mono text-[11px] text-muted-foreground">
-              {summary.belowThreshold} low-relevance pairs excluded. Scores below the 50% meaningful-connection
-              threshold were calculated for statistics but not stored · calculated {new Date(summary.computedAt).toLocaleString()}
+              {summary.excludedBelow60 ?? summary.belowThreshold} low-relevance comparisons excluded from visible results.
+              Scores below the 60% meaningful-connection threshold remain outside this view · calculated {new Date(summary.computedAt).toLocaleString()}
             </p>
           </div>
         ) : null}
@@ -298,12 +306,12 @@ function EnginePage() {
               Retry
             </button>
           </div>
-        ) : rows.length === 0 && summary && summary.high + summary.moderate + summary.weak === 0 ? (
+        ) : rows.length === 0 && summary ? (
           <div className="panel flex flex-col items-center gap-3 p-10 text-center">
             <Activity className="size-6 text-cyan" />
             <p className="text-sm font-medium">No meaningful connections found</p>
             <p className="max-w-md text-[12px] text-muted-foreground">
-              This case was compared with the available investigations, but none reached the 50% connection threshold.
+              This investigation was compared with the available cases, but none reached the 60% connection threshold.
             </p>
           </div>
         ) : rows.length === 0 ? (
@@ -329,16 +337,24 @@ function EnginePage() {
               ].filter(Boolean);
               return (
                 <article key={c.id} className="panel overflow-hidden">
-                  <button
-                    onClick={() => setOpen(isOpen ? null : c.id)}
-                    className="flex w-full items-start gap-3 p-4 text-left"
+                  <Link
+                    to="/links"
+                    search={{ case: c.case_a_id, link: c.id }}
+                    aria-label={`Open investigation board for ${c.caseA?.case_no ?? "first case"} and ${c.caseB?.case_no ?? "second case"}, ${c.score.toFixed(1)} percent ${c.classification}`}
+                    onKeyDown={(event) => {
+                      if (event.key === " ") {
+                        event.preventDefault();
+                        event.currentTarget.click();
+                      }
+                    }}
+                    className="flex w-full cursor-pointer items-start gap-3 p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan"
                   >
                     <span
                       className={
                         "mt-0.5 rounded-sm border px-2 py-1 font-mono text-[13px] " +
                         (strong
                           ? "border-danger/50 bg-danger/10 text-danger"
-                          : c.score >= 50
+                          : c.score >= 60
                             ? "border-amber/50 bg-amber/10 text-amber"
                             : "border-border text-muted-foreground")
                       }
@@ -376,6 +392,15 @@ function EnginePage() {
                         {c.caseB?.title ?? "Unknown file"}
                       </span>
                     </span>
+                  </Link>
+
+                  <button
+                    type="button"
+                    onClick={() => setOpen(isOpen ? null : c.id)}
+                    aria-expanded={isOpen}
+                    className="w-full border-t border-border/50 px-4 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground hover:bg-cyan/5 hover:text-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan"
+                  >
+                    {isOpen ? "Hide factors and verdict controls" : "Review factors and verdict controls"}
                   </button>
 
                   {isOpen ? (

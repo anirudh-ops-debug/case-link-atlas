@@ -218,7 +218,7 @@ function DashboardPage() {
                   <Link
                     key={l.id}
                     to="/links"
-                    search={{ link: l.id }}
+                    search={{ case: l.aId, link: l.id }}
                     className="block rounded-md border border-border/70 bg-surface-2/40 p-2.5 transition-colors hover:border-amber/40"
                   >
                     <div className="flex items-center justify-between gap-2">
