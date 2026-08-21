@@ -113,6 +113,13 @@ function mapEvidence(row: EvidenceRow, locations: LocationRow[]): Evidence {
     keywords: [row.category, row.filename].filter((value): value is string => Boolean(value)),
     stage: row.status,
     recordKind: "evidence",
+    storagePath: row.storage_path,
+    mimeType: row.mime_type,
+    fileSizeBytes: row.file_size_bytes,
+    originalFilename: row.original_filename,
+    checksumSha256: row.checksum_sha256,
+    withdrawnAt: row.withdrawn_at,
+    withdrawalReason: row.withdrawal_reason,
   };
 }
 
@@ -236,7 +243,7 @@ export async function loadInvestigations(
       client.from("witnesses").select("*"),
       client.from("cctv").select("*"),
       client.from("timeline_events").select("*").order("occurred_at", { ascending: true }),
-      client.from("case_connections").select("*").order("score", { ascending: false }),
+      client.from("case_connections").select("*").gte("score", 50).order("score", { ascending: false }),
     ]);
 
   const failed = [cases, evidence, persons, vehicles, weapons, locations, witnesses, cctv, timeline, connections]

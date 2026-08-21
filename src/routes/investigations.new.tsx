@@ -209,7 +209,7 @@ export default function NewInvestigationPage() {
       const result = await createInvestigation(buildInput());
       const runMatching = {
         label: "Run matching",
-        onClick: () => void router.navigate({ to: "/engine" }),
+        onClick: () => void router.navigate({ to: "/engine", search: {} }),
       };
       if (result.childFailures.length) {
         toast.warning(`${result.caseNo} created with incomplete related data`, {

@@ -32,6 +32,13 @@ export interface Evidence {
   stage: EvidenceStage | string;
   recordKind?: "evidence" | "cctv" | "timeline";
   relatedEvidenceId?: string | null;
+  storagePath?: string | null;
+  mimeType?: string | null;
+  fileSizeBytes?: number | null;
+  originalFilename?: string | null;
+  checksumSha256?: string | null;
+  withdrawnAt?: string | null;
+  withdrawalReason?: string | null;
 }
 
 export interface Subject {

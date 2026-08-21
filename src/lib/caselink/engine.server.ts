@@ -64,7 +64,7 @@ export async function runCorrelation(
   const focus = focusCaseId ? corpus.find((c) => c.id === focusCaseId) ?? null : null;
   if (focusCaseId && !focus) throw new Error("Case not found in the database corpus.");
 
-  const analysis = analyseCorpus(corpus, focusCaseId ? { minScore: 20, focusCaseId } : { minScore: 20 });
+  const analysis = analyseCorpus(corpus, focusCaseId ? { minScore: 50, focusCaseId } : { minScore: 50 });
   const pairs: ScoredPair[] = analysis.pairs;
 
   const existing = await db.from("case_connections").select("id, case_a_id, case_b_id, verdict");
@@ -162,7 +162,7 @@ export async function runCorrelation(
     action: focus
       ? `Searched for hidden connections on ${focus.case_no}`
       : "Ran cross-case correlation engine",
-    detail: `${corpus.length} files considered, ${analysis.candidatePairs} candidate pairs selected, ${analysis.skippedPairs} skipped as irrelevant, ${pairs.length} links stored (weighted 7-factor model).`,
+    detail: `${corpus.length} files considered, ${analysis.candidatePairs} candidate pairs examined, ${analysis.skippedPairs} skipped as irrelevant, ${stored} meaningful connections stored, ${analysis.belowThreshold} low-relevance pairs excluded (weighted 7-factor model).`,
     ...(focus ? { case_id: focus.id } : {}),
   });
 
@@ -177,7 +177,7 @@ export async function runCorrelation(
     high: pairs.filter((p) => p.score >= 85).length,
     moderate: count(70, 85),
     weak: count(50, 70),
-    low: pairs.filter((p) => p.score < 50).length,
+    low: analysis.belowThreshold,
     computedAt,
     focusCaseNo: focus?.case_no ?? null,
     leads: pairs,
@@ -187,7 +187,7 @@ export async function runCorrelation(
 
 export async function loadConnections(db: DB) {
   const [conns, factors, cases] = await Promise.all([
-    db.from("case_connections").select("*").order("score", { ascending: false }),
+    db.from("case_connections").select("*").gte("score", 50).order("score", { ascending: false }),
     db.from("connection_factors").select("*"),
     db
       .from("cases")

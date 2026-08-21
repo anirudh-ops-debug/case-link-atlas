@@ -320,7 +320,10 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
   );
 
 
-  const links = databaseLinks;
+  const links = useMemo(
+    () => databaseLinks.filter((link) => link.confidence >= 50),
+    [databaseLinks],
+  );
 
   const allEvidence = useMemo(() => cases.flatMap((c) => c.evidence), [cases]);
 

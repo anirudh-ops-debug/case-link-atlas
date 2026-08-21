@@ -95,12 +95,21 @@ function InvestigationView() {
       title={investigation.title}
       subtitle={`${investigation.code} · ${investigation.type} · ${investigation.status}`}
       actions={
-        <button
-          onClick={() => setTarget({ kind: "case", id: investigation.id })}
-          className="rounded-md border border-border px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-cyan/50 hover:text-cyan"
-        >
-          Case drawer
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/engine"
+            search={{ case: investigation.id }}
+            className="rounded-md border border-cyan/50 bg-cyan/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:bg-cyan/20"
+          >
+            Find Hidden Connections
+          </Link>
+          <button
+            onClick={() => setTarget({ kind: "case", id: investigation.id })}
+            className="rounded-md border border-border px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-cyan/50 hover:text-cyan"
+          >
+            Case drawer
+          </button>
+        </div>
       }
     >
       <div className="panel mb-3 flex flex-wrap items-center gap-3 p-3">

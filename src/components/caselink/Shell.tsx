@@ -85,6 +85,7 @@ export function Shell({
               <Link
                 key={item.to}
                 to={item.to}
+                search={{}}
                 activeOptions={{ exact: item.to === "/investigations" }}
                 className="group flex items-center gap-2.5 rounded-md border border-transparent px-2.5 py-2 text-[13px] text-muted-foreground transition-colors hover:border-border hover:bg-surface-2/70 hover:text-foreground"
                 activeProps={{
@@ -157,6 +158,7 @@ export function Shell({
                 <Link
                   key={item.to}
                   to={item.to}
+                  search={{}}
                   activeOptions={{ exact: item.to === "/investigations" }}
                   className="shrink-0 rounded-md px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
                   activeProps={{ className: "bg-cyan/10 text-cyan" }}
