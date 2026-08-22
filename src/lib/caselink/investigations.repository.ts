@@ -14,6 +14,43 @@ type CctvRow = Tables<"cctv">;
 type TimelineRow = Tables<"timeline_events">;
 type ConnectionRow = Tables<"case_connections">;
 type AlertRow = Tables<"alerts">;
+type ProfileRow = Tables<"profiles">;
+
+export interface EligibleInvestigator {
+  id: string;
+  fullName: string;
+  roles: Array<"investigator" | "senior_investigator">;
+  rankDesignation: string | null;
+  unitOrAgency: string | null;
+  activeCaseCount: number;
+  totalCaseCount: number;
+}
+
+export interface InvestigatorProfileRecord {
+  fullName: string;
+  contactNumber: string | null;
+  approvedRole: string | null;
+  rankDesignation: string | null;
+  unit: string | null;
+  agency: string | null;
+  serviceStartDate: string | null;
+  specialization: string | null;
+  awards: string[];
+  professionalBio: string | null;
+  assignedCaseCount: number;
+}
+
+export interface InvestigationWorkspaceRecord {
+  status: string;
+  priority: "Critical" | "High" | "Medium" | "Low";
+  investigatorId: string | null;
+  updatedAt: string;
+  evidenceCount: number;
+  mostRecentEvidenceAt: string | null;
+  latestActivity: { title: string; occurredAt: string } | null;
+  meaningfulLeadCount: number;
+  investigator: InvestigatorProfileRecord | null;
+}
 
 export interface InvestigationRepositoryResult {
   cases: Investigation[];
@@ -174,6 +211,7 @@ function vehicleLabel(row: VehicleRow | undefined): string | undefined {
 
 function mapCase(
   row: CaseRow,
+  profiles: Map<string, ProfileRow>,
   persons: PersonRow[],
   vehicles: VehicleRow[],
   weapons: WeaponRow[],
@@ -206,7 +244,10 @@ function mapCase(
     ...(row.modus_operandi.length ? { modusOperandi: row.modus_operandi.join("; ") } : {}),
     ...(weapons[0] ? { weapon: [weapons[0].weapon_type, weapons[0].description].filter(Boolean).join(": ") } : {}),
     witnesses: witnesses.map((witness) => witness.name),
-    officer: row.investigator_name ?? "",
+    officer: row.investigator_id
+      ? profiles.get(row.investigator_id)?.full_name?.trim() || "Name not recorded"
+      : "",
+    ...(row.investigator_id ? { assignedInvestigatorId: row.investigator_id } : {}),
     createdAt: row.created_at,
     evidence: [
       ...evidence.map((item) => mapEvidence(item, locations)),
@@ -246,7 +287,7 @@ function mapAlert(row: AlertRow): IntelligenceAlert {
 export async function loadInvestigations(
   client: SupabaseClient<Database>,
 ): Promise<InvestigationRepositoryResult> {
-  const [cases, evidence, persons, vehicles, weapons, locations, witnesses, cctv, timeline, connections] =
+  const [cases, evidence, persons, vehicles, weapons, locations, witnesses, cctv, timeline, connections, profiles] =
     await Promise.all([
       client.from("cases").select("*").order("occurred_at", { ascending: false }),
       client.from("evidence").select("*"),
@@ -258,9 +299,10 @@ export async function loadInvestigations(
       client.from("cctv").select("*"),
       client.from("timeline_events").select("*").order("occurred_at", { ascending: true }),
       client.from("case_connections").select("*").gte("score", 50).order("score", { ascending: false }),
+      client.from("profiles").select("*"),
     ]);
 
-  const failed = [cases, evidence, persons, vehicles, weapons, locations, witnesses, cctv, timeline, connections]
+  const failed = [cases, evidence, persons, vehicles, weapons, locations, witnesses, cctv, timeline, connections, profiles]
     .map((result) => result.error)
     .find((error) => error != null);
   if (failed) throw new Error(failed.message);
@@ -273,11 +315,13 @@ export async function loadInvestigations(
   const evidenceByCase = groupByCase(evidence.data ?? []);
   const cctvByCase = groupByCase(cctv.data ?? []);
   const timelineByCase = groupByCase(timeline.data ?? []);
+  const profilesById = new Map((profiles.data ?? []).map((profile) => [profile.id, profile]));
 
   return {
     cases: (cases.data ?? []).map((row) =>
       mapCase(
         row,
+        profilesById,
         personsByCase.get(row.id) ?? [],
         vehiclesByCase.get(row.id) ?? [],
         weaponsByCase.get(row.id) ?? [],
@@ -302,6 +346,135 @@ export async function loadIntelligenceAlerts(
 
   if (error) throw new Error(error.message);
   return (data ?? []).map(mapAlert);
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function requireUuid(value: string, label: string): string {
+  if (!UUID_PATTERN.test(value)) throw new Error(`${label} must be a valid UUID.`);
+  return value;
+}
+
+export async function changeInvestigationStatus(
+  client: SupabaseClient<Database>,
+  caseId: string,
+  targetStatus: "Active" | "Dormant" | "Closed",
+): Promise<CaseRow> {
+  const { data, error } = await client.rpc("change_investigation_status", {
+    _case_id: requireUuid(caseId, "Case ID"),
+    _new_status: targetStatus,
+  });
+  if (error || !data) throw new Error(error?.message ?? "The investigation status could not be changed.");
+  return data;
+}
+
+export async function assignCaseInvestigator(
+  client: SupabaseClient<Database>,
+  caseId: string,
+  investigatorId: string,
+): Promise<CaseRow> {
+  const { data, error } = await client.rpc("assign_case_investigator", {
+    _case_id: requireUuid(caseId, "Case ID"),
+    _investigator_id: requireUuid(investigatorId, "Investigator ID"),
+  });
+  if (error || !data) throw new Error(error?.message ?? "The investigator could not be assigned.");
+  return data;
+}
+
+export async function loadEligibleInvestigators(
+  client: SupabaseClient<Database>,
+): Promise<EligibleInvestigator[]> {
+  const { data, error } = await client.rpc("list_eligible_case_investigators");
+  if (error) throw new Error(`Eligible investigators could not be loaded: ${error.message}`);
+  return (data ?? []).map((person) => ({
+    id: person.id,
+    fullName: person.full_name,
+    roles: person.roles.filter((role): role is "investigator" | "senior_investigator" => role === "investigator" || role === "senior_investigator"),
+    rankDesignation: person.rank_designation,
+    unitOrAgency: person.unit_or_agency,
+    activeCaseCount: person.active_case_count,
+    totalCaseCount: person.total_case_count,
+  }));
+}
+
+export async function loadInvestigationWorkspace(
+  client: SupabaseClient<Database>,
+  caseId: string,
+): Promise<InvestigationWorkspaceRecord> {
+  const { data: caseRow, error: caseError } = await client
+    .from("cases")
+    .select("id, status, priority, updated_at, investigator_id")
+    .eq("id", caseId)
+    .single();
+  if (caseError) throw new Error(caseError.message);
+
+  const [evidence, activity, connections] = await Promise.all([
+    client.from("evidence").select("created_at, collected_at").eq("case_id", caseId),
+    client
+      .from("timeline_events")
+      .select("title, occurred_at")
+      .eq("case_id", caseId)
+      .order("occurred_at", { ascending: false })
+      .limit(1),
+    client
+      .from("case_connections")
+      .select("id")
+      .or(`case_a_id.eq.${caseId},case_b_id.eq.${caseId}`)
+      .gte("score", 60),
+  ]);
+  const relatedError = evidence.error ?? activity.error ?? connections.error;
+  if (relatedError) throw new Error(relatedError.message);
+
+  let investigator: InvestigatorProfileRecord | null = null;
+  if (caseRow.investigator_id) {
+    const [profile, roles, assignedCases] = await Promise.all([
+      client
+        .from("profiles")
+        .select("full_name, contact_number, rank_designation, unit, agency_id, service_start_date, specialization, awards, professional_bio")
+        .eq("id", caseRow.investigator_id)
+        .maybeSingle(),
+      client.from("user_roles").select("role").eq("user_id", caseRow.investigator_id),
+      client.from("cases").select("id", { count: "exact", head: true }).eq("investigator_id", caseRow.investigator_id),
+    ]);
+    if (profile.error) throw new Error(profile.error.message);
+    if (assignedCases.error) throw new Error(assignedCases.error.message);
+    let agency: string | null = null;
+    if (profile.data?.agency_id) {
+      const agencyResult = await client.from("agencies").select("name").eq("id", profile.data.agency_id).maybeSingle();
+      if (agencyResult.error) throw new Error(agencyResult.error.message);
+      agency = agencyResult.data?.name ?? null;
+    }
+    if (profile.data) {
+      investigator = {
+        fullName: profile.data.full_name.trim() || "Name not recorded",
+        contactNumber: profile.data.contact_number,
+        approvedRole: roles.error ? null : (roles.data?.map((item) => item.role).join(", ") || null),
+        rankDesignation: profile.data.rank_designation,
+        unit: profile.data.unit,
+        agency,
+        serviceStartDate: profile.data.service_start_date,
+        specialization: profile.data.specialization,
+        awards: profile.data.awards,
+        professionalBio: profile.data.professional_bio,
+        assignedCaseCount: assignedCases.count ?? 0,
+      };
+    }
+  }
+
+  const evidenceDates = (evidence.data ?? []).map((row) => row.collected_at ?? row.created_at);
+  evidenceDates.sort((a, b) => +new Date(b) - +new Date(a));
+  const latest = activity.data?.[0];
+  return {
+    status: caseRow.status,
+    priority: caseRow.priority,
+    investigatorId: caseRow.investigator_id,
+    updatedAt: caseRow.updated_at,
+    evidenceCount: evidence.data?.length ?? 0,
+    mostRecentEvidenceAt: evidenceDates[0] ?? null,
+    latestActivity: latest ? { title: latest.title, occurredAt: latest.occurred_at } : null,
+    meaningfulLeadCount: connections.data?.length ?? 0,
+    investigator,
+  };
 }
 
 export async function createInvestigation(

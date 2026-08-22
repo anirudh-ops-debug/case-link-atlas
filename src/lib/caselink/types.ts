@@ -2,7 +2,7 @@ export type CaseType = string;
 
 export type Priority = "Critical" | "High" | "Medium" | "Low";
 
-export type CaseStatus = "Active" | "Under Review" | "Escalated" | "Closed";
+export type CaseStatus = "Active" | "Under Review" | "Escalated" | "Dormant" | "Closed";
 
 export type EvidenceType =
   | "CCTV"
@@ -66,6 +66,7 @@ export interface Investigation {
   weapon?: string | undefined;
   witnesses: string[];
   officer: string;
+  assignedInvestigatorId?: string | undefined;
   createdAt: string;
   evidence: Evidence[];
   isDatabaseBacked?: boolean;

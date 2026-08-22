@@ -17,6 +17,7 @@ import { Route as EngineRouteImport } from './routes/engine'
 import { Route as EvidenceRouteImport } from './routes/evidence'
 import { Route as LinksRouteImport } from './routes/links'
 import { Route as ProfileRouteImport } from './routes/profile'
+import { Route as AdminApplicationsRouteImport } from './routes/admin.applications'
 import { Route as InvestigationsIndexRouteImport } from './routes/investigations.index'
 import { Route as InvestigationsCaseIdRouteImport } from './routes/investigations.$caseId'
 import { Route as InvestigationsNewRouteImport } from './routes/investigations.new'
@@ -61,6 +62,11 @@ const ProfileRoute = ProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminApplicationsRoute = AdminApplicationsRouteImport.update({
+  id: '/admin/applications',
+  path: '/admin/applications',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InvestigationsIndexRoute = InvestigationsIndexRouteImport.update({
   id: '/investigations/',
   path: '/investigations/',
@@ -86,6 +92,7 @@ export interface FileRoutesByFullPath {
   '/evidence': typeof EvidenceRoute
   '/links': typeof LinksRoute
   '/profile': typeof ProfileRoute
+  '/admin/applications': typeof AdminApplicationsRoute
   '/investigations/$caseId': typeof InvestigationsCaseIdRoute
   '/investigations/new': typeof InvestigationsNewRoute
   '/investigations/': typeof InvestigationsIndexRoute
@@ -99,6 +106,7 @@ export interface FileRoutesByTo {
   '/evidence': typeof EvidenceRoute
   '/links': typeof LinksRoute
   '/profile': typeof ProfileRoute
+  '/admin/applications': typeof AdminApplicationsRoute
   '/investigations/$caseId': typeof InvestigationsCaseIdRoute
   '/investigations/new': typeof InvestigationsNewRoute
   '/investigations': typeof InvestigationsIndexRoute
@@ -113,6 +121,7 @@ export interface FileRoutesById {
   '/evidence': typeof EvidenceRoute
   '/links': typeof LinksRoute
   '/profile': typeof ProfileRoute
+  '/admin/applications': typeof AdminApplicationsRoute
   '/investigations/$caseId': typeof InvestigationsCaseIdRoute
   '/investigations/new': typeof InvestigationsNewRoute
   '/investigations/': typeof InvestigationsIndexRoute
@@ -128,6 +137,7 @@ export interface FileRouteTypes {
     | '/evidence'
     | '/links'
     | '/profile'
+    | '/admin/applications'
     | '/investigations/$caseId'
     | '/investigations/new'
     | '/investigations/'
@@ -141,6 +151,7 @@ export interface FileRouteTypes {
     | '/evidence'
     | '/links'
     | '/profile'
+    | '/admin/applications'
     | '/investigations/$caseId'
     | '/investigations/new'
     | '/investigations'
@@ -154,6 +165,7 @@ export interface FileRouteTypes {
     | '/evidence'
     | '/links'
     | '/profile'
+    | '/admin/applications'
     | '/investigations/$caseId'
     | '/investigations/new'
     | '/investigations/'
@@ -168,6 +180,7 @@ export interface RootRouteChildren {
   EvidenceRoute: typeof EvidenceRoute
   LinksRoute: typeof LinksRoute
   ProfileRoute: typeof ProfileRoute
+  AdminApplicationsRoute: typeof AdminApplicationsRoute
   InvestigationsCaseIdRoute: typeof InvestigationsCaseIdRoute
   InvestigationsNewRoute: typeof InvestigationsNewRoute
   InvestigationsIndexRoute: typeof InvestigationsIndexRoute
@@ -231,6 +244,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/applications': {
+      id: '/admin/applications'
+      path: '/admin/applications'
+      fullPath: '/admin/applications'
+      preLoaderRoute: typeof AdminApplicationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/investigations/': {
       id: '/investigations/'
       path: '/investigations'
@@ -264,6 +284,7 @@ const rootRouteChildren: RootRouteChildren = {
   EvidenceRoute: EvidenceRoute,
   LinksRoute: LinksRoute,
   ProfileRoute: ProfileRoute,
+  AdminApplicationsRoute: AdminApplicationsRoute,
   InvestigationsCaseIdRoute: InvestigationsCaseIdRoute,
   InvestigationsNewRoute: InvestigationsNewRoute,
   InvestigationsIndexRoute: InvestigationsIndexRoute,
