@@ -3,6 +3,7 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 
 import { Chip, PriorityDot, SectionTitle, fmtDay } from "@/components/caselink/bits";
 import { InvestigationOperations } from "@/components/caselink/investigations/InvestigationOperations";
+import { InvestigationTheories } from "@/components/caselink/investigations/InvestigationTheories";
 import { InvestigationTimeline } from "@/components/caselink/investigations/InvestigationTimeline";
 import { Shell } from "@/components/caselink/Shell";
 import { useCaseLink } from "@/lib/caselink/store";
@@ -29,6 +30,7 @@ function InvestigationView() {
       <section className="panel mb-3 p-4"><div className="flex flex-wrap items-center gap-3"><PriorityDot priority={investigation.priority} /><span className="font-mono text-xs text-cyan">{investigation.code}</span><span className="text-sm text-muted-foreground">{investigation.type}</span></div><p className="mt-3 max-w-4xl text-sm leading-relaxed text-muted-foreground">{investigation.notes || "No case description recorded."}</p></section>
       <div className="panel mb-3 flex flex-wrap items-center gap-2 p-3"><Chip>{investigation.priority} priority</Chip><Chip tone="cyan">{investigation.subject.name || "Subject not recorded"}</Chip>{investigation.subject.vehicle ? <Chip tone="amber">{investigation.subject.vehicle}</Chip> : null}{investigation.subject.phone ? <Chip>{investigation.subject.phone}</Chip> : null}<Chip>{fmtDay(investigation.incidentDate)}</Chip><Chip>{investigation.lastKnownLocation || "Location not recorded"}</Chip><Chip tone={meaningfulLinks.length ? "amber" : "default"}>{meaningfulLinks.length} meaningful connections</Chip><Chip>{actualEvidence.length} evidence</Chip></div>
       <InvestigationOperations caseId={investigation.id} />
+      <InvestigationTheories caseId={investigation.id} status={investigation.status} investigatorId={investigation.assignedInvestigatorId} />
       <section className="panel overflow-hidden"><SectionTitle right={<Chip>{investigation.evidence.length}</Chip>}>Recorded timeline</SectionTitle><div className="px-2 pb-3"><InvestigationTimeline evidence={investigation.evidence} /></div></section>
       <p className="mt-3 label-xs">Database record · {cases.length} investigations available · Evidence files are managed securely in Evidence Management</p>
     </Shell>

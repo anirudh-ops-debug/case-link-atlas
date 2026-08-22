@@ -7,9 +7,14 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { supabase } from "@/integrations/supabase/client";
 import { assignCaseInvestigator, changeInvestigationStatus, loadEligibleInvestigators, loadInvestigationWorkspace, type EligibleInvestigator, type InvestigationWorkspaceRecord } from "@/lib/caselink/investigations.repository";
 import { useCaseLink } from "@/lib/caselink/store";
+import { INTAKE_CASE_TYPES, rankEligibleInvestigators, type IntakeCaseType } from "@/lib/caselink/investigator-recommendations";
 
-type DetailPanel = "status" | "investigator" | null;
+type DetailPanel = "investigator" | null;
 type TargetStatus = "Active" | "Dormant" | "Closed";
+
+function statusLabel(status: string): string {
+  return status === "Closed" ? "Completed" : status;
+}
 
 function yearsSince(value: string | null): string {
   if (!value) return "Not recorded";
@@ -26,6 +31,7 @@ export function InvestigationOperations({ caseId }: { caseId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [panel, setPanel] = useState<DetailPanel>(null);
   const [eligible, setEligible] = useState<EligibleInvestigator[]>([]);
@@ -40,22 +46,33 @@ export function InvestigationOperations({ caseId }: { caseId: string }) {
     finally { setLoading(false); }
   };
   useEffect(() => { void load(); }, [caseId]);
+  useEffect(() => {
+    const refreshTheoryCount = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail?.caseId === caseId) void load();
+    };
+    window.addEventListener("caselink:theories-updated", refreshTheoryCount);
+    return () => window.removeEventListener("caselink:theories-updated", refreshTheoryCount);
+  }, [caseId]);
   useEffect(() => { if (panel === "investigator") void loadEligibleInvestigators(supabase).then(setEligible).catch((cause) => setActionError(cause instanceof Error ? cause.message : "Investigators could not be loaded.")); }, [panel]);
 
-  const assignable = useMemo(() => eligible.filter((person) => {
-    if (!workspace) return false;
-    if ((workspace.priority === "High" || workspace.priority === "Critical") && !person.roles.includes("senior_investigator")) return false;
-    if (session?.role === "INVESTIGATOR") return person.id === session.userId;
-    return session?.role === "SUPERVISOR" || session?.role === "ADMIN";
-  }), [eligible, session, workspace]);
+  const assignable = useMemo(() => {
+    if (!workspace) return [];
+    const caseType: IntakeCaseType = INTAKE_CASE_TYPES.includes(workspace.crimeType as IntakeCaseType) ? workspace.crimeType as IntakeCaseType : "Other";
+    return rankEligibleInvestigators({ people: eligible, caseType, priority: workspace.priority, actorRole: session?.role, actorUserId: session?.userId, recordedContext: workspace.recommendationContext });
+  }, [eligible, session, workspace]);
 
   async function refresh() { await load(); retryCases(); }
   async function updateStatus(target: TargetStatus) {
     if (processing) return;
-    if (target === "Closed" && !window.confirm("Close this investigation? Closing is an auditable status change and does not delete case data.")) return;
-    setProcessing(true); setActionError(null);
-    try { await changeInvestigationStatus(supabase, caseId, target); await refresh(); setPanel(null); toast.success(`Investigation status changed to ${target}.`); }
-    catch (cause) { setActionError(cause instanceof Error ? cause.message : "The status could not be changed."); }
+    const confirmation = target === "Dormant"
+      ? "Mark this investigation Dormant? The case remains stored and can be reactivated."
+      : target === "Closed"
+        ? "Close this investigation? Closing marks the case Completed and does not delete case data, evidence, timeline events or audit records."
+        : "Reactivate this investigation? The case will return to Active.";
+    if (!window.confirm(confirmation)) return;
+    setProcessing(true); setStatusError(null);
+    try { await changeInvestigationStatus(supabase, caseId, target); await refresh(); toast.success(`Investigation status changed to ${statusLabel(target)}.`); }
+    catch (cause) { setStatusError(cause instanceof Error ? cause.message : "The status could not be changed."); }
     finally { setProcessing(false); }
   }
   async function reassign() {
@@ -73,26 +90,41 @@ export function InvestigationOperations({ caseId }: { caseId: string }) {
   if (!workspace) return null;
   const investigator = workspace.investigator;
   const canWrite = session?.role === "INVESTIGATOR" || session?.role === "SUPERVISOR" || session?.role === "ADMIN";
-  const canReactivateClosed = session?.role === "SUPERVISOR" || session?.role === "ADMIN";
+  const isSupervisor = session?.role === "SUPERVISOR" || session?.role === "ADMIN";
+  const isAssignedInvestigator = session?.role === "INVESTIGATOR" && workspace.investigatorId === session.userId;
+  const canChangeOpenStatus = isSupervisor || isAssignedInvestigator;
   return <section className="panel mb-3 p-3">
     <SectionTitle>Case progress</SectionTitle>
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      <ProgressItem label="Current status" value={workspace.status} {...(canWrite ? { onClick: () => { setActionError(null); setPanel("status"); } } : {})} />
+      <ProgressItem label="Current status" value={statusLabel(workspace.status)} />
       <ProgressItem label="Assigned investigator" value={investigator?.fullName ?? "Name not recorded"} detail={investigator ? [investigator.rankDesignation, investigator.unit].filter(Boolean).join(" · ") || "Professional profile details not yet recorded" : "Investigator not assigned"} onClick={() => { setActionError(null); setPanel("investigator"); }} />
       <ProgressItem label="Last case update" value={fmtDateTime(workspace.updatedAt)} />
       <Link to="/evidence" search={{ case: caseId, upload: false }} aria-label="Open Evidence Management for this investigation" className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan"><ProgressItem label="Evidence" value={workspace.evidenceCount ? `${workspace.evidenceCount} record(s)` : "No evidence recorded"} detail={workspace.mostRecentEvidenceAt ? `Latest: ${fmtDateTime(workspace.mostRecentEvidenceAt)}` : "No recorded evidence date"} interactive /></Link>
       <ProgressItem label="Latest activity" value={workspace.latestActivity?.title ?? "No recent activity"} {...(workspace.latestActivity ? { detail: fmtDateTime(workspace.latestActivity.occurredAt) } : {})} />
       <ProgressItem label="Meaningful connections" value={workspace.meaningfulLeadCount ? String(workspace.meaningfulLeadCount) : "No meaningful connections"} detail="Stored case connections at or above 60%" />
-      <ProgressItem label="Theories" value="No recorded theories" detail="Database persistence is not yet available." />
+      <ProgressItem label="Theories" value={workspace.theoryCount ? `${workspace.theoryCount} recorded` : "No recorded theories"} detail="Investigative hypotheses — not verified evidence" onClick={() => document.getElementById("investigation-theories")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+    </div>
+    <div className="mt-4 rounded-md border bg-background/40 p-4" aria-labelledby="case-status-heading">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div><h3 id="case-status-heading" className="text-sm font-semibold">Case Status</h3><p className="mt-1 text-xs text-muted-foreground">Current status: {statusLabel(workspace.status)}</p></div>
+        {workspace.status === "Closed" ? <span className="rounded-full border px-3 py-1 text-xs font-medium">Completed</span> : null}
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">Status changes are authorized and audited by the database workflow.</p>
+      {statusError ? <p role="alert" className="mt-3 rounded-md border border-danger/40 bg-danger/10 p-2 text-sm text-danger">{statusError}</p> : null}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {workspace.status === "Active" && canChangeOpenStatus ? <><Action label="Mark Dormant" disabled={processing} onClick={() => void updateStatus("Dormant")} /><Action label="Close Case" disabled={processing} onClick={() => void updateStatus("Closed")} /></> : null}
+        {workspace.status === "Dormant" && canChangeOpenStatus ? <><Action label="Reactivate Case" disabled={processing} onClick={() => void updateStatus("Active")} /><Action label="Close Case" disabled={processing} onClick={() => void updateStatus("Closed")} /></> : null}
+        {workspace.status === "Closed" && isSupervisor ? <Action label="Reactivate Case" disabled={processing} onClick={() => void updateStatus("Active")} /> : null}
+        {!canChangeOpenStatus || (workspace.status === "Closed" && !isSupervisor) ? <p className="text-sm text-muted-foreground">No status actions are available for your assigned role and the current status.</p> : null}
+      </div>
     </div>
     <Dialog open={panel !== null} onOpenChange={(open) => { if (!open && !processing) setPanel(null); }}><DialogContent>
-      <DialogHeader><DialogTitle>{panel === "investigator" ? "Assigned investigator" : "Case status"}</DialogTitle><DialogDescription>{panel === "investigator" ? "Recorded professional profile and secure assignment controls." : "Database-authorized investigation workflow actions."}</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle>Assigned investigator</DialogTitle><DialogDescription>Recorded professional profile and secure assignment controls.</DialogDescription></DialogHeader>
       {actionError ? <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-2 text-sm text-danger">{actionError}</p> : null}
       {panel === "investigator" ? <div className="space-y-4">
         {investigator ? <dl className="grid gap-3 text-sm sm:grid-cols-2">{[["Full name", investigator.fullName], ["Approved role", investigator.approvedRole], ["Contact number", investigator.contactNumber], ["Rank/designation", investigator.rankDesignation], ["Unit", investigator.unit], ["Agency/department", investigator.agency], ["Service start date", investigator.serviceStartDate], ["Experience", yearsSince(investigator.serviceStartDate)], ["Specialization", investigator.specialization], ["Awards", investigator.awards.length ? investigator.awards.join(", ") : null], ["Professional biography", investigator.professionalBio], ["Cases assigned", String(investigator.assignedCaseCount)]].map(([label, value]) => <div key={label}><dt className="label-xs">{label}</dt><dd className="mt-1">{value || "Not recorded"}</dd></div>)}</dl> : <p>Investigator not assigned.</p>}
-        {canWrite ? <div className="border-t pt-4"><label className="label-xs" htmlFor="case-assignee">Change Assigned Investigator</label><select id="case-assignee" value={selectedInvestigatorId} onChange={(event) => setSelectedInvestigatorId(event.target.value)} className="mt-2 w-full rounded-md border bg-background p-2 text-sm"><option value="">Select an eligible investigator</option>{assignable.map((person) => <option key={person.id} value={person.id}>{person.fullName} — {person.roles.map((role) => role === "senior_investigator" ? "Senior Investigator" : "Investigator").join(", ")} · {[person.rankDesignation, person.unitOrAgency].filter(Boolean).join(" · ") || "Professional details not recorded"} · {person.activeCaseCount} active case{person.activeCaseCount === 1 ? "" : "s"}</option>)}</select><button type="button" disabled={processing || !selectedInvestigatorId || selectedInvestigatorId === workspace.investigatorId} onClick={() => void reassign()} className="mt-2 rounded-md border border-cyan/50 px-3 py-2 text-sm text-cyan disabled:opacity-50">{processing ? "Assigning…" : "Confirm reassignment"}</button></div> : null}
+        {canWrite ? <div className="border-t pt-4"><label className="label-xs" htmlFor="case-assignee">Change Assigned Investigator</label><select id="case-assignee" value={selectedInvestigatorId} onChange={(event) => setSelectedInvestigatorId(event.target.value)} className="mt-2 w-full rounded-md border bg-background p-2 text-sm"><option value="">{assignable.length ? "Select an eligible investigator" : "No approved investigator is eligible for this case priority."}</option>{assignable.map((person) => <option key={person.id} value={person.id}>{person.recommended ? "Recommended — " : ""}{person.fullName} — {person.roles.map((role) => role === "senior_investigator" ? "Senior Investigator" : "Investigator").join(", ")} · {person.rankDesignation || "Rank not recorded"} · {person.specialization || "Specialization not recorded"} · {person.unitOrAgency || "Unit not recorded"} · {person.yearsExperience == null ? "Experience not recorded" : `${person.yearsExperience} years recorded service`} · {person.activeCaseCount} active case{person.activeCaseCount === 1 ? "" : "s"}</option>)}</select>{assignable[0] ? <p className="mt-2 text-xs text-muted-foreground">{assignable[0].explanations.join(" · ")}</p> : null}<button type="button" disabled={processing || !selectedInvestigatorId || selectedInvestigatorId === workspace.investigatorId} onClick={() => void reassign()} className="mt-2 rounded-md border border-cyan/50 px-3 py-2 text-sm text-cyan disabled:opacity-50">{processing ? "Assigning…" : "Confirm reassignment"}</button></div> : null}
       </div> : null}
-      {panel === "status" ? <div className="flex flex-wrap gap-2">{workspace.status === "Active" ? <><Action label="Mark Dormant" disabled={processing} onClick={() => void updateStatus("Dormant")} /><Action label="Close Case" disabled={processing} onClick={() => void updateStatus("Closed")} /></> : workspace.status === "Dormant" ? <><Action label="Reactivate Case" disabled={processing} onClick={() => void updateStatus("Active")} /><Action label="Close Case" disabled={processing} onClick={() => void updateStatus("Closed")} /></> : workspace.status === "Closed" && canReactivateClosed ? <Action label="Reactivate Case" disabled={processing} onClick={() => void updateStatus("Active")} /> : <p className="text-sm text-muted-foreground">No status actions are available for your assigned role and the current status.</p>}</div> : null}
       <DialogFooter><DialogClose asChild><button type="button" disabled={processing} className="rounded-md border px-3 py-2 text-sm">Close</button></DialogClose></DialogFooter>
     </DialogContent></Dialog>
   </section>;

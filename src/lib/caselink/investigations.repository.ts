@@ -21,6 +21,8 @@ export interface EligibleInvestigator {
   fullName: string;
   roles: Array<"investigator" | "senior_investigator">;
   rankDesignation: string | null;
+  specialization: string | null;
+  serviceStartDate: string | null;
   unitOrAgency: string | null;
   activeCaseCount: number;
   totalCaseCount: number;
@@ -42,6 +44,8 @@ export interface InvestigatorProfileRecord {
 
 export interface InvestigationWorkspaceRecord {
   status: string;
+  crimeType: string;
+  recommendationContext: string;
   priority: "Critical" | "High" | "Medium" | "Low";
   investigatorId: string | null;
   updatedAt: string;
@@ -49,6 +53,7 @@ export interface InvestigationWorkspaceRecord {
   mostRecentEvidenceAt: string | null;
   latestActivity: { title: string; occurredAt: string } | null;
   meaningfulLeadCount: number;
+  theoryCount: number;
   investigator: InvestigatorProfileRecord | null;
 }
 
@@ -391,6 +396,8 @@ export async function loadEligibleInvestigators(
     fullName: person.full_name,
     roles: person.roles.filter((role): role is "investigator" | "senior_investigator" => role === "investigator" || role === "senior_investigator"),
     rankDesignation: person.rank_designation,
+    specialization: person.specialization,
+    serviceStartDate: person.service_start_date,
     unitOrAgency: person.unit_or_agency,
     activeCaseCount: person.active_case_count,
     totalCaseCount: person.total_case_count,
@@ -403,12 +410,12 @@ export async function loadInvestigationWorkspace(
 ): Promise<InvestigationWorkspaceRecord> {
   const { data: caseRow, error: caseError } = await client
     .from("cases")
-    .select("id, status, priority, updated_at, investigator_id")
+    .select("id, status, priority, crime_type, notes, description, modus_operandi, updated_at, investigator_id")
     .eq("id", caseId)
     .single();
   if (caseError) throw new Error(caseError.message);
 
-  const [evidence, activity, connections] = await Promise.all([
+  const [evidence, activity, connections, theories] = await Promise.all([
     client.from("evidence").select("created_at, collected_at").eq("case_id", caseId),
     client
       .from("timeline_events")
@@ -421,8 +428,9 @@ export async function loadInvestigationWorkspace(
       .select("id")
       .or(`case_a_id.eq.${caseId},case_b_id.eq.${caseId}`)
       .gte("score", 60),
+    client.from("investigation_theories").select("id", { count: "exact", head: true }).eq("case_id", caseId),
   ]);
-  const relatedError = evidence.error ?? activity.error ?? connections.error;
+  const relatedError = evidence.error ?? activity.error ?? connections.error ?? theories.error;
   if (relatedError) throw new Error(relatedError.message);
 
   let investigator: InvestigatorProfileRecord | null = null;
@@ -466,6 +474,8 @@ export async function loadInvestigationWorkspace(
   const latest = activity.data?.[0];
   return {
     status: caseRow.status,
+    crimeType: caseRow.crime_type,
+    recommendationContext: [caseRow.notes, caseRow.description, ...caseRow.modus_operandi].filter(Boolean).join(" "),
     priority: caseRow.priority,
     investigatorId: caseRow.investigator_id,
     updatedAt: caseRow.updated_at,
@@ -473,6 +483,7 @@ export async function loadInvestigationWorkspace(
     mostRecentEvidenceAt: evidenceDates[0] ?? null,
     latestActivity: latest ? { title: latest.title, occurredAt: latest.occurred_at } : null,
     meaningfulLeadCount: connections.data?.length ?? 0,
+    theoryCount: theories.count ?? 0,
     investigator,
   };
 }

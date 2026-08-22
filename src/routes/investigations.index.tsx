@@ -34,7 +34,7 @@ function InvestigationsPage() {
   const [q, setQ] = useState("");
   const [type, setType] = useState("all");
   const [priority, setPriority] = useState("all");
-  const [statusTab, setStatusTab] = useState<"all" | "active" | "dormant" | "completed">("all");
+  const [statusTab, setStatusTab] = useState<"all" | "active" | "under-review" | "dormant" | "completed">("all");
   const [investigator, setInvestigator] = useState("all");
   const [eligibleInvestigators, setEligibleInvestigators] = useState<EligibleInvestigator[]>([]);
   useEffect(() => { void loadEligibleInvestigators(supabase).then(setEligibleInvestigators).catch(() => setEligibleInvestigators([])); }, []);
@@ -44,6 +44,7 @@ function InvestigationsPage() {
     const needle = q.trim().toLowerCase();
     return cases.filter((c) => {
       if (statusTab === "active" && c.status !== "Active") return false;
+      if (statusTab === "under-review" && c.status !== "Under Review") return false;
       if (statusTab === "completed" && c.status !== "Closed") return false;
       if (statusTab === "dormant" && c.status !== "Dormant") return false;
       if (investigator === "unassigned" && c.assignedInvestigatorId) return false;
@@ -71,6 +72,7 @@ function InvestigationsPage() {
   const tabCounts = {
     all: cases.length,
     active: cases.filter((item) => item.status === "Active").length,
+    underReview: cases.filter((item) => item.status === "Under Review").length,
     dormant: cases.filter((item) => item.status === "Dormant").length,
     completed: cases.filter((item) => item.status === "Closed").length,
   };
@@ -92,9 +94,9 @@ function InvestigationsPage() {
       }
     >
       <div className="panel mb-3 flex flex-wrap gap-2 p-2" role="tablist" aria-label="Investigation status">
-        {(["all", "active", "dormant", "completed"] as const).map((tab) => {
-          const count = tab === "all" ? tabCounts.all : tab === "active" ? tabCounts.active : tab === "dormant" ? tabCounts.dormant : tabCounts.completed;
-          const label = tab === "all" ? "All" : `${tab.charAt(0).toUpperCase()}${tab.slice(1)}`;
+        {(["all", "active", "under-review", "dormant", "completed"] as const).map((tab) => {
+          const count = tab === "all" ? tabCounts.all : tab === "active" ? tabCounts.active : tab === "under-review" ? tabCounts.underReview : tab === "dormant" ? tabCounts.dormant : tabCounts.completed;
+          const label = tab === "all" ? "All" : tab === "under-review" ? "Under Review" : `${tab.charAt(0).toUpperCase()}${tab.slice(1)}`;
           return <button key={tab} type="button" role="tab" aria-selected={statusTab === tab} onClick={() => setStatusTab(tab)} className="rounded-md border px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] data-[selected=true]:border-cyan/60 data-[selected=true]:text-cyan" data-selected={statusTab === tab}>{label} {count}</button>;
         })}
       </div>
@@ -178,7 +180,7 @@ function InvestigationsPage() {
                   {c.title}
                 </Link>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  {c.type} · {c.status} · {c.district}
+                  {c.type} · {c.status === "Closed" ? "Completed" : c.status} · {c.district}
                 </p>
                 <p className="mt-1 text-[11px] text-muted-foreground">Assigned investigator: {c.officer || "Name not recorded"}</p>
                 <p className="mt-2 line-clamp-2 text-[12px] leading-snug text-muted-foreground">
