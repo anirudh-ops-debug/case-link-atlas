@@ -605,6 +605,48 @@ export type Database = {
           },
         ]
       }
+      investigation_theories: {
+        Row: {
+          author_id: string
+          case_id: string
+          created_at: string
+          id: string
+          theory: string
+          updated_at: string
+        }
+        Insert: {
+          author_id: string
+          case_id: string
+          created_at?: string
+          id?: string
+          theory: string
+          updated_at?: string
+        }
+        Update: {
+          author_id?: string
+          case_id?: string
+          created_at?: string
+          id?: string
+          theory?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "investigation_theories_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "investigation_theories_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       locations: {
         Row: {
           case_id: string
@@ -1037,6 +1079,10 @@ export type Database = {
         Args: { _case_id: string; _investigator_id: string }
         Returns: Database["public"]["Tables"]["cases"]["Row"]
       }
+      add_investigation_theory: {
+        Args: { _case_id: string; _theory: string }
+        Returns: Database["public"]["Tables"]["investigation_theories"]["Row"]
+      }
       attach_application_document: {
         Args: { _mime_type: string; _original_filename: string; _storage_path: string }
         Returns: Database["public"]["Tables"]["account_applications"]["Row"]
@@ -1067,6 +1113,8 @@ export type Database = {
           id: string
           rank_designation: string | null
           roles: Database["public"]["Enums"]["app_role"][]
+          service_start_date: string | null
+          specialization: string | null
           total_case_count: number
           unit_or_agency: string | null
         }[]

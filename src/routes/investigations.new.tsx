@@ -1,25 +1,17 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { Check, Plus, Trash2,Upload } from "lucide-react";
+import { Check } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { uploadEvidenceFile, validateEvidenceFile } from "@/lib/caselink/evidence.repository";
-
-import { Chip, EVIDENCE_COLOR, fmtDateTime } from "@/components/caselink/bits";
-import { EvidenceUploadDialog } from "@/components/caselink/evidence/EvidenceUploadDialog";
+import { fmtDateTime } from "@/components/caselink/bits";
 import { Shell } from "@/components/caselink/Shell";
-import { CASE_TYPES, EVIDENCE_TYPES, LOCATION_PRESETS, PRIORITIES } from "@/lib/caselink/data";
+import { LOCATION_PRESETS, PRIORITIES } from "@/lib/caselink/data";
 import { useCaseLink } from "@/lib/caselink/store";
 import type { CreateInvestigationInput } from "@/lib/caselink/investigations.repository";
-import type {
-  CaseType,
-  Evidence,
-  EvidenceStage,
-  EvidenceType,
-  Priority,
-} from "@/lib/caselink/types";
+import type { Priority } from "@/lib/caselink/types";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { loadEligibleInvestigators, type EligibleInvestigator } from "@/lib/caselink/investigations.repository";
+import { INTAKE_CASE_TYPES, rankEligibleInvestigators, type IntakeCaseType } from "@/lib/caselink/investigator-recommendations";
 
 export const Route = createFileRoute("/investigations/new")({
   head: () => ({
@@ -28,7 +20,7 @@ export const Route = createFileRoute("/investigations/new")({
       {
         name: "description",
         content:
-          "Guided four-step intake wizard: subject details, incident context, evidence upload with processing pipeline, and review before correlation runs.",
+          "Guided case-information intake with subject details, incident context and secure investigator assignment.",
       },
       { property: "og:title", content: "New Investigation · CASELINK" },
       {
@@ -40,17 +32,18 @@ export const Route = createFileRoute("/investigations/new")({
   component: NewInvestigationPage,
 });
 
-const STEPS = ["Subject", "Incident", "Evidence", "Review"] as const;
+const STEPS = ["Subject", "Incident", "Review"] as const;
 
 interface Draft {
   caseNo: string;
   firNumber: string;
+  title: string;
   name: string;
   aliases: string;
   age: string;
   phone: string;
   vehicle: string;
-  type: CaseType;
+  type: IntakeCaseType;
   priority: Priority;
   date: string;
   location: string;
@@ -63,12 +56,13 @@ interface Draft {
 const emptyDraft: Draft = {
   caseNo: "",
   firNumber: "",
+  title: "",
   name: "",
   aliases: "",
   age: "",
   phone: "",
   vehicle: "",
-  type: "Missing Person",
+  type: "Missing",
   priority: "High",
   date: new Date().toISOString().slice(0, 16),
   location: LOCATION_PRESETS[0]!.name,
@@ -78,29 +72,18 @@ const emptyDraft: Draft = {
   notes: "",
 };
 
-interface DraftEvidence extends Evidence {
-  stage: EvidenceStage;
-}
-
 export default function NewInvestigationPage() {
   const { cases, createInvestigation, session } = useCaseLink();
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
-  const [evidence, setEvidence] = useState<DraftEvidence[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
-  const [evType, setEvType] = useState<EvidenceType>("CCTV");
-  const [evLabel, setEvLabel] = useState("");
-  const [evLocation, setEvLocation] = useState(LOCATION_PRESETS[0]!.name);
-  const [evWhen, setEvWhen] = useState(new Date().toISOString().slice(0, 16));
-  const [evDetails, setEvDetails] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadOpen, setUploadOpen] = useState(false);
+  const [createdCase, setCreatedCase] = useState<{ id: string; caseNo: string; assignmentError: string | null } | null>(null);
   const [investigators, setInvestigators] = useState<EligibleInvestigator[]>([]);
   const [investigatorsLoading, setInvestigatorsLoading] = useState(true);
   const [investigatorsError, setInvestigatorsError] = useState<string | null>(null);
-  const [investigatorId, setInvestigatorId] = useState(session?.userId ?? "");
+  const [investigatorId, setInvestigatorId] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -112,11 +95,7 @@ export default function NewInvestigationPage() {
     return () => { active = false; };
   }, []);
 
-  const priorityEligible = useMemo(() => investigators.filter((person) =>
-    draft.priority === "High" || draft.priority === "Critical"
-      ? person.roles.includes("senior_investigator")
-      : person.roles.some((role) => role === "investigator" || role === "senior_investigator"),
-  ), [draft.priority, investigators]);
+  const priorityEligible = useMemo(() => rankEligibleInvestigators({ people: investigators, caseType: draft.type, priority: draft.priority, actorRole: session?.role, actorUserId: session?.userId, recordedContext: `${draft.notes} ${draft.modus} ${draft.weapon} ${draft.vehicle}` }), [draft, investigators, session]);
   const selectedInvestigator = investigators.find((person) => person.id === investigatorId);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) =>
@@ -131,6 +110,8 @@ export default function NewInvestigationPage() {
       errs.push("Case number must be at least 3 characters.");
     if (target >= 1 && draft.name.trim().length < 3)
       errs.push("Subject name must be at least 3 characters.");
+    if (target >= 1 && draft.title.trim().length < 3)
+      errs.push("Case title must be at least 3 characters.");
     if (target >= 2) {
       if (!draft.date) errs.push("Incident date and time is required.");
       else if (Number.isNaN(+new Date(draft.date))) errs.push("Incident date is invalid.");
@@ -145,49 +126,12 @@ export default function NewInvestigationPage() {
 
   const draftLabel = draft.caseNo.trim() || "Unnumbered draft";
 
-  const addEvidenceRow = () => {
-    if (evLabel.trim().length < 3) {
-      toast.error("Evidence label must be at least 3 characters.");
-      return;
-    }
-    const preset =
-      LOCATION_PRESETS.find((p) => p.name === evLocation) ?? LOCATION_PRESETS[0]!;
-    const id = `DRAFT-E${String(evidence.length + 1).padStart(2, "0")}`;
-    const row: DraftEvidence = {
-      id,
-      caseId: "pending-database-case",
-      type: evType,
-      label: evLabel.trim(),
-      source: "Metadata intake; file storage not configured",
-      timestamp: new Date(evWhen).toISOString(),
-      locationName: preset.name,
-      lat: preset.lat,
-      lng: preset.lng,
-      reliability: null,
-      details: evDetails.trim() || `${evType} record submitted during intake.`,
-      interpretation: "Metadata only. No evidence file has been uploaded or stored.",
-      keywords: [
-        ...(draft.vehicle ? [draft.vehicle] : []),
-        ...(draft.phone ? [draft.phone] : []),
-        evType.toLowerCase(),
-        preset.name.split(",")[0]!.toLowerCase(),
-      ],
-      stage: "INDEXED",
-    };
-    setEvidence((prev) => [...prev, row]);
-    setEvLabel("");
-    setEvDetails("");
-  };
-
   const buildInput = (): CreateInvestigationInput => {
     const incidentLocation = LOCATION_PRESETS.find((preset) => preset.name === draft.location) ?? null;
     return {
       caseNo: draft.caseNo.trim(),
       firNumber: draft.firNumber.trim() || null,
-      title:
-        draft.type === "Missing Person"
-          ? `Disappearance of ${draft.name.trim()}`
-          : `${draft.type} — ${draft.location}`,
+      title: draft.title.trim(),
       crimeType: draft.type,
       description: draft.notes.trim() || null,
       occurredAt: new Date(draft.date).toISOString(),
@@ -196,7 +140,7 @@ export default function NewInvestigationPage() {
         : null,
       status: "Active",
       priority: draft.priority,
-      tags: Array.from(new Set([draft.type, ...evidence.flatMap((item) => item.keywords)])),
+      tags: [draft.type],
       modusOperandi: draft.modus.trim() ? [draft.modus.trim()] : [],
       notes: draft.notes.trim() || null,
       isSynthetic: true,
@@ -216,14 +160,7 @@ export default function NewInvestigationPage() {
         .map((name) => name.trim())
         .filter(Boolean),
       weapon: draft.weapon.trim() || null,
-      evidence: evidence.map((item) => ({
-        category: item.type,
-        label: item.label,
-        description: item.details || null,
-        collectedAt: item.timestamp,
-        latitude: item.lat,
-        longitude: item.lng,
-      })),
+      evidence: [],
     };
   };
 
@@ -239,29 +176,19 @@ export default function NewInvestigationPage() {
       if (!session) throw new Error("An authenticated session is required.");
       const result = await createInvestigation(buildInput(), investigatorId);
 
-      if (uploadFile) {
-  await uploadEvidenceFile({
-    caseId: result.caseId,
-    category: "Document",
-    displayLabel: uploadFile.name,
-    description: `Evidence uploaded during investigation intake.`,
-    collectedAt: new Date().toISOString(),
-    file: uploadFile,
-  });
-}
-      const runMatching = {
-        label: "Run matching",
-        onClick: () => void router.navigate({ to: "/engine", search: {} }),
+      const manageEvidence = {
+        label: "Manage Evidence",
+        onClick: () => void router.navigate({ to: "/evidence", search: { case: result.caseId, upload: false } }),
       };
       if (result.childFailures.length) {
         toast.warning(`${result.caseNo} created with incomplete related data`, {
           description: result.childFailures.join(" · "),
-          action: runMatching,
+          action: manageEvidence,
         });
       } else {
         toast.success(`${result.caseNo} created in Supabase`, {
-          description: "Run Intelligent Matching to evaluate the new database case.",
-          action: runMatching,
+          description: "Open the investigation now, or manage its evidence securely.",
+          action: manageEvidence,
         });
       }
       if (result.auditError) {
@@ -277,7 +204,7 @@ export default function NewInvestigationPage() {
           description: result.reloadError,
         });
       }
-      void router.navigate({ to: "/investigations/$caseId", params: { caseId: result.caseId } });
+      setCreatedCase({ id: result.caseId, caseNo: result.caseNo, assignmentError: result.assignmentError });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Investigation creation failed.";
       setErrors([message]);
@@ -286,6 +213,8 @@ export default function NewInvestigationPage() {
       setSubmitting(false);
     }
   };
+
+  if (createdCase) { const actual = cases.find((item) => item.id === createdCase.id); return <Shell title="Investigation created" subtitle={`${createdCase.caseNo} · database record`}><section className="panel space-y-4 p-6"><p className="text-sm text-foreground">The case information was stored. Evidence files are managed separately in Evidence Management.</p>{createdCase.assignmentError ? <div role="alert" className="rounded-md border border-amber/50 bg-amber/10 p-3 text-sm"><strong>Assignment failed after case creation.</strong><p className="mt-1 text-muted-foreground">{createdCase.assignmentError}</p><p className="mt-1">Actual recorded assignment: {actual?.officer || "Name not recorded"}. Open the investigation to retry through Change Assigned Investigator.</p></div> : <p className="text-sm">Assigned investigator: {actual?.officer || selectedInvestigator?.fullName || "Name not recorded"}</p>}<div className="flex flex-wrap gap-2"><button type="button" onClick={() => void router.navigate({ to: "/investigations/$caseId", params: { caseId: createdCase.id } })} className="rounded-md border border-cyan/50 bg-cyan/10 px-4 py-2 text-sm text-cyan">Open Investigation</button><button type="button" onClick={() => void router.navigate({ to: "/evidence", search: { case: createdCase.id, upload: false } })} className="rounded-md border px-4 py-2 text-sm">Manage Evidence</button></div></section></Shell>; }
 
   return (
     <Shell title="New Investigation" subtitle={`Database intake · ${draftLabel}`}>
@@ -327,6 +256,7 @@ export default function NewInvestigationPage() {
             <Field label="FIR number">
               <input className={input} value={draft.firNumber} onChange={(e) => set("firNumber", e.target.value)} />
             </Field>
+            <Field label="Case title *"><input className={input} value={draft.title} onChange={(event) => set("title", event.target.value)} /></Field>
             <Field label="Subject name *">
               <input className={input} value={draft.name} onChange={(e) => set("name", e.target.value)} />
             </Field>
@@ -361,8 +291,8 @@ export default function NewInvestigationPage() {
         {step === 1 ? (
           <div className="grid gap-3 md:grid-cols-2">
             <Field label="Case type">
-              <select className={input} value={draft.type} onChange={(e) => set("type", e.target.value as CaseType)}>
-                {CASE_TYPES.map((t) => (
+              <select className={input} value={draft.type} onChange={(e) => set("type", e.target.value as IntakeCaseType)}>
+                {INTAKE_CASE_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>
@@ -419,121 +349,9 @@ export default function NewInvestigationPage() {
         ) : null}
 
         {step === 2 ? (
-          <div className="space-y-3">
-            <div className="grid gap-3 md:grid-cols-3">
-              <Field label="Evidence type">
-                <select className={input} value={evType} onChange={(e) => setEvType(e.target.value as EvidenceType)}>
-                  {EVIDENCE_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Label">
-                <input className={input} value={evLabel} onChange={(e) => setEvLabel(e.target.value)} />
-              </Field>
-              <Field label="Location">
-                <select className={input} value={evLocation} onChange={(e) => setEvLocation(e.target.value)}>
-                  {LOCATION_PRESETS.map((p) => (
-                    <option key={p.name} value={p.name}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Recorded at">
-                <input
-                  type="datetime-local"
-                  className={input}
-                  value={evWhen}
-                  onChange={(e) => setEvWhen(e.target.value)}
-                />
-              </Field>
-              <Field label="Source reliability">
-                <p className="rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-                  Not recorded by the current database schema
-                </p>
-              </Field>
-              <Field label="Detail">
-                <input className={input} value={evDetails} onChange={(e) => setEvDetails(e.target.value)} />
-              </Field>
-            </div>
-            <button
-              onClick={addEvidenceRow}
-              className="flex items-center gap-1.5 rounded-md border border-cyan/50 bg-cyan/15 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:bg-cyan/25"
-            >
-              <Plus className="size-3" /> Add evidence metadata
-            </button>
-
-            <button
-  type="button"
-  onClick={() => document.getElementById("new-investigation-evidence-file")?.click()}
-  className="flex items-center gap-1.5 rounded-md border border-cyan/50 bg-cyan/15 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:bg-cyan/25"
->
-  <Upload className="size-3" /> Upload evidence file
-</button>
-<input
-  id="new-investigation-evidence-file"
-  type="file"
-  className="hidden"
-  accept=".jpg,.jpeg,.png,.webp,.pdf,.txt,.csv,.doc,.docx,.mp4,.webm,.mov"
-  onChange={(event) => {
-    const selected = event.target.files?.[0] ?? null;
-    setUploadFile(selected);
-  }}
-/>
-{uploadFile ? (
-  <p className="text-[11px] text-muted-foreground">
-    Selected file: <span className="text-foreground">{uploadFile.name}</span>
-  </p>
-) : null}
-
-            <div className="space-y-2">
-              {evidence.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground">
-                  No evidence metadata added. Evidence file storage is not configured in this phase.
-                </p>
-              ) : (
-                evidence.map((e) => (
-                  <div
-                    key={e.id}
-                    className="flex items-center gap-3 rounded-md border border-border/70 bg-surface-2/40 p-2.5"
-                  >
-                    <span
-                      className="size-2 rounded-full animate-trace-pulse"
-                      style={{ backgroundColor: EVIDENCE_COLOR[e.type] }}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[12px] text-foreground">{e.label}</span>
-                      <span className="block font-mono text-[10px] text-muted-foreground">
-                        {e.id} · {e.type} · {e.locationName} · {fmtDateTime(e.timestamp)}
-                      </span>
-                    </span>
-                    <Chip
-                      tone={
-                        e.stage === "CORRELATED" ? "success" : e.stage === "INDEXED" ? "cyan" : "amber"
-                      }
-                    >
-                      {e.stage}
-                    </Chip>
-                    <button
-                      onClick={() => setEvidence((prev) => prev.filter((x) => x.id !== e.id))}
-                      className="text-muted-foreground hover:text-danger"
-                      aria-label={`Remove ${e.id}`}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        ) : null}
-
-        {step === 3 ? (
           <div className="grid gap-3 md:grid-cols-2">
             <Review label="Subject" value={draft.name || "—"} />
+            <Review label="Case title" value={draft.title || "—"} />
             <Review label="Aliases" value={draft.aliases || "none recorded"} />
             <Review label="Case type" value={draft.type} />
             <Review label="Priority" value={draft.priority} />
@@ -541,7 +359,6 @@ export default function NewInvestigationPage() {
             <Review label="Last known location" value={draft.location} />
             <Review label="Vehicle" value={draft.vehicle || "none"} />
             <Review label="Handset" value={draft.phone || "none"} />
-            <Review label="Evidence attached" value={`${evidence.length} record(s)`} />
             <Review label="Witnesses" value={draft.witnesses || "none"} />
             <Review label="Assigned investigator" value={selectedInvestigator?.fullName ?? "Name not recorded"} />
             <div className="md:col-span-2 rounded-md border border-cyan/25 bg-cyan/[0.06] p-3 text-[12px] leading-relaxed text-muted-foreground">
@@ -556,10 +373,10 @@ export default function NewInvestigationPage() {
           <Field label="Assigned investigator *">
             <select className={input} value={investigatorId} disabled={investigatorsLoading} onChange={(event) => setInvestigatorId(event.target.value)}>
               <option value="">{investigatorsLoading ? "Loading approved investigators…" : "Select an approved investigator"}</option>
-              {priorityEligible.map((person) => <option key={person.id} value={person.id}>{person.fullName} — {person.roles.map((role) => role === "senior_investigator" ? "Senior Investigator" : "Investigator").join(", ")} · {[person.rankDesignation, person.unitOrAgency].filter(Boolean).join(" · ") || "Professional details not recorded"} · {person.activeCaseCount} active case{person.activeCaseCount === 1 ? "" : "s"}</option>)}
+              {priorityEligible.map((person) => <option key={person.id} value={person.id}>{person.recommended ? "Recommended — " : ""}{person.fullName} — {person.roles.map((role) => role === "senior_investigator" ? "Senior Investigator" : "Investigator").join(", ")} · {person.rankDesignation || "Rank not recorded"} · {person.specialization || "Specialization not recorded"} · {person.unitOrAgency || "Unit not recorded"} · {person.yearsExperience == null ? "Experience not recorded" : `${person.yearsExperience} years recorded service`} · {person.activeCaseCount} active case{person.activeCaseCount === 1 ? "" : "s"}</option>)}
             </select>
             {investigatorsError ? <span className="block text-[11px] text-danger">{investigatorsError}</span> : null}
-            <span className="block text-[11px] text-muted-foreground">High and Critical cases list approved Senior Investigators. Cross-user assignment remains unavailable until the proposed secure assignment RPC is applied.</span>
+            <span className="block text-[11px] text-muted-foreground">{priorityEligible.length ? priorityEligible[0]?.explanations.join(" · ") : "No approved investigator is eligible for this case priority."} Assignment requires manual confirmation and remains database-authorized.</span>
           </Field>
         ) : null}
 
@@ -571,7 +388,7 @@ export default function NewInvestigationPage() {
           >
             Back
           </button>
-          {step < 3 ? (
+          {step < 2 ? (
             <button
               onClick={() => {
                 if (validate(step + 1)) setStep((s) => s + 1);
