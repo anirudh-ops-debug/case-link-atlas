@@ -1033,11 +1033,19 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      assign_case_investigator: {
+        Args: { _case_id: string; _investigator_id: string }
+        Returns: Database["public"]["Tables"]["cases"]["Row"]
+      }
       attach_application_document: {
         Args: { _mime_type: string; _original_filename: string; _storage_path: string }
         Returns: Database["public"]["Tables"]["account_applications"]["Row"]
       }
       can_verify: { Args: { _user_id: string }; Returns: boolean }
+      change_investigation_status: {
+        Args: { _case_id: string; _new_status: Database["public"]["Enums"]["case_status"] }
+        Returns: Database["public"]["Tables"]["cases"]["Row"]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1051,6 +1059,18 @@ export type Database = {
       }
       is_approved_user: { Args: { _user_id: string }; Returns: boolean }
       is_case_writer: { Args: { _user_id: string }; Returns: boolean }
+      list_eligible_case_investigators: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          active_case_count: number
+          full_name: string
+          id: string
+          rank_designation: string | null
+          roles: Database["public"]["Enums"]["app_role"][]
+          total_case_count: number
+          unit_or_agency: string | null
+        }[]
+      }
       review_account_application: {
         Args: {
           _application_id: string
@@ -1069,7 +1089,7 @@ export type Database = {
       application_role: "investigator" | "senior_investigator" | "administrator" | "authorized_user"
       application_status: "PENDING_DOCUMENT_REVIEW" | "PENDING_ADMIN_APPROVAL" | "VERIFIED_APPROVED" | "FAILED" | "REJECTED" | "MORE_INFORMATION_REQUIRED"
       case_priority: "Critical" | "High" | "Medium" | "Low"
-      case_status: "Active" | "Under Review" | "Escalated" | "Closed"
+      case_status: "Active" | "Under Review" | "Escalated" | "Dormant" | "Closed"
       connection_verdict: "pending" | "confirmed" | "rejected" | "inconclusive"
     }
     CompositeTypes: {
@@ -1202,7 +1222,7 @@ export const Constants = {
       application_role: ["investigator", "senior_investigator", "administrator", "authorized_user"],
       application_status: ["PENDING_DOCUMENT_REVIEW", "PENDING_ADMIN_APPROVAL", "VERIFIED_APPROVED", "FAILED", "REJECTED", "MORE_INFORMATION_REQUIRED"],
       case_priority: ["Critical", "High", "Medium", "Low"],
-      case_status: ["Active", "Under Review", "Escalated", "Closed"],
+      case_status: ["Active", "Under Review", "Escalated", "Dormant", "Closed"],
       connection_verdict: ["pending", "confirmed", "rejected", "inconclusive"],
     },
   },

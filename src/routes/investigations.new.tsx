@@ -1,11 +1,11 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { Check, Plus, Trash2,Upload } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { uploadEvidenceFile, validateEvidenceFile } from "@/lib/caselink/evidence.repository";
 
 import { Chip, EVIDENCE_COLOR, fmtDateTime } from "@/components/caselink/bits";
-import { EvidenceUploadDialog } from "@/components/caselink/EvidenceUploadDialog";
+import { EvidenceUploadDialog } from "@/components/caselink/evidence/EvidenceUploadDialog";
 import { Shell } from "@/components/caselink/Shell";
 import { CASE_TYPES, EVIDENCE_TYPES, LOCATION_PRESETS, PRIORITIES } from "@/lib/caselink/data";
 import { useCaseLink } from "@/lib/caselink/store";
@@ -18,6 +18,8 @@ import type {
   Priority,
 } from "@/lib/caselink/types";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { loadEligibleInvestigators, type EligibleInvestigator } from "@/lib/caselink/investigations.repository";
 
 export const Route = createFileRoute("/investigations/new")({
   head: () => ({
@@ -81,7 +83,7 @@ interface DraftEvidence extends Evidence {
 }
 
 export default function NewInvestigationPage() {
-  const { cases, createInvestigation } = useCaseLink();
+  const { cases, createInvestigation, session } = useCaseLink();
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
@@ -95,6 +97,27 @@ export default function NewInvestigationPage() {
   const [submitting, setSubmitting] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [investigators, setInvestigators] = useState<EligibleInvestigator[]>([]);
+  const [investigatorsLoading, setInvestigatorsLoading] = useState(true);
+  const [investigatorsError, setInvestigatorsError] = useState<string | null>(null);
+  const [investigatorId, setInvestigatorId] = useState(session?.userId ?? "");
+
+  useEffect(() => {
+    let active = true;
+    setInvestigatorsLoading(true);
+    void loadEligibleInvestigators(supabase)
+      .then((rows) => { if (active) { setInvestigators(rows); setInvestigatorsError(null); } })
+      .catch((cause) => { if (active) setInvestigatorsError(cause instanceof Error ? cause.message : "Investigators could not be loaded."); })
+      .finally(() => { if (active) setInvestigatorsLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  const priorityEligible = useMemo(() => investigators.filter((person) =>
+    draft.priority === "High" || draft.priority === "Critical"
+      ? person.roles.includes("senior_investigator")
+      : person.roles.some((role) => role === "investigator" || role === "senior_investigator"),
+  ), [draft.priority, investigators]);
+  const selectedInvestigator = investigators.find((person) => person.id === investigatorId);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) =>
     setDraft((d) => ({ ...d, [k]: v }));
@@ -112,6 +135,9 @@ export default function NewInvestigationPage() {
       if (!draft.date) errs.push("Incident date and time is required.");
       else if (Number.isNaN(+new Date(draft.date))) errs.push("Incident date is invalid.");
       if (!draft.location.trim()) errs.push("Last known location is required.");
+      if (!investigatorId || !priorityEligible.some((person) => person.id === investigatorId)) {
+        errs.push("Select an approved investigator who is eligible for this case priority.");
+      }
     }
     setErrors(errs);
     return errs.length === 0;
@@ -210,7 +236,8 @@ export default function NewInvestigationPage() {
     setSubmitting(true);
     setErrors([]);
     try {
-      const result = await createInvestigation(buildInput());
+      if (!session) throw new Error("An authenticated session is required.");
+      const result = await createInvestigation(buildInput(), investigatorId);
 
       if (uploadFile) {
   await uploadEvidenceFile({
@@ -239,6 +266,11 @@ export default function NewInvestigationPage() {
       }
       if (result.auditError) {
         toast.warning("Case created, but its audit record failed", { description: result.auditError });
+      }
+      if (result.assignmentError) {
+        toast.warning("Case created, but investigator assignment failed", {
+          description: `${result.assignmentError} The database register was refreshed to show the actual stored assignment.`,
+        });
       }
       if (result.reloadError) {
         toast.warning("Case created, but the database register could not be reloaded", {
@@ -511,12 +543,24 @@ export default function NewInvestigationPage() {
             <Review label="Handset" value={draft.phone || "none"} />
             <Review label="Evidence attached" value={`${evidence.length} record(s)`} />
             <Review label="Witnesses" value={draft.witnesses || "none"} />
+            <Review label="Assigned investigator" value={selectedInvestigator?.fullName ?? "Name not recorded"} />
             <div className="md:col-span-2 rounded-md border border-cyan/25 bg-cyan/[0.06] p-3 text-[12px] leading-relaxed text-muted-foreground">
               Submission writes this investigation to Supabase. It does not generate or claim a
               connection score. After creation, run Intelligent Matching to evaluate it against the
               {` ${cases.length}`} existing database files.
             </div>
           </div>
+        ) : null}
+
+        {step === 1 ? (
+          <Field label="Assigned investigator *">
+            <select className={input} value={investigatorId} disabled={investigatorsLoading} onChange={(event) => setInvestigatorId(event.target.value)}>
+              <option value="">{investigatorsLoading ? "Loading approved investigators…" : "Select an approved investigator"}</option>
+              {priorityEligible.map((person) => <option key={person.id} value={person.id}>{person.fullName} — {person.roles.map((role) => role === "senior_investigator" ? "Senior Investigator" : "Investigator").join(", ")} · {[person.rankDesignation, person.unitOrAgency].filter(Boolean).join(" · ") || "Professional details not recorded"} · {person.activeCaseCount} active case{person.activeCaseCount === 1 ? "" : "s"}</option>)}
+            </select>
+            {investigatorsError ? <span className="block text-[11px] text-danger">{investigatorsError}</span> : null}
+            <span className="block text-[11px] text-muted-foreground">High and Critical cases list approved Senior Investigators. Cross-user assignment remains unavailable until the proposed secure assignment RPC is applied.</span>
+          </Field>
         ) : null}
 
         <div className="flex items-center justify-between border-t border-border/70 pt-3">

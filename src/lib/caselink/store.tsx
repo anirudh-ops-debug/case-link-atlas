@@ -18,6 +18,7 @@ import {
 
 import {
   createInvestigation as createDatabaseInvestigation,
+  assignCaseInvestigator,
   loadIntelligenceAlerts,
   loadInvestigations,
   type CreateInvestigationInput,
@@ -109,7 +110,8 @@ interface Ctx {
   clearAuthError: () => void;
   createInvestigation: (
     input: CreateInvestigationInput,
-  ) => Promise<CreateInvestigationResult & { reloadError: string | null }>;
+    investigatorId?: string,
+  ) => Promise<CreateInvestigationResult & { reloadError: string | null; assignmentError: string | null }>;
   getCase: (id: string) => Investigation | undefined;
   addCase: (c: Investigation) => void;
   updateCase: (id: string, patch: Partial<Investigation>) => void;
@@ -554,7 +556,7 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
     return application;
   }, []);
 
-  const createInvestigation = useCallback(async (input: CreateInvestigationInput) => {
+  const createInvestigation = useCallback(async (input: CreateInvestigationInput, investigatorId?: string) => {
     if (!session) throw new Error("You must be signed in to create an investigation.");
     if (!ROLE_PERMISSIONS[session.role].includes("case.write")) {
       throw new Error("Your assigned role is not permitted to create investigations.");
@@ -563,8 +565,16 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
       userId: session.userId,
       name: session.name,
     });
+    let assignmentError: string | null = null;
+    if (investigatorId) {
+      try {
+        await assignCaseInvestigator(supabase, result.caseId, investigatorId);
+      } catch (error) {
+        assignmentError = error instanceof Error ? error.message : "The selected investigator could not be assigned.";
+      }
+    }
     const reloadError = await fetchCases();
-    return { ...result, reloadError };
+    return { ...result, reloadError, assignmentError };
   }, [fetchCases, session]);
 
   const resetDemo = useCallback(() => {

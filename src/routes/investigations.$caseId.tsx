@@ -1,31 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertTriangle, RefreshCw,Upload } from "lucide-react";
-import { useState } from "react";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 
-import { AIPanel } from "@/components/caselink/AIPanel";
 import { Chip, PriorityDot, SectionTitle, fmtDay } from "@/components/caselink/bits";
-import { DetailDrawer, type DrawerTarget } from "@/components/caselink/DetailDrawer";
+import { InvestigationOperations } from "@/components/caselink/investigations/InvestigationOperations";
+import { InvestigationTimeline } from "@/components/caselink/investigations/InvestigationTimeline";
 import { Shell } from "@/components/caselink/Shell";
-import { TacticalMap } from "@/components/caselink/TacticalMap";
-import { Timeline } from "@/components/caselink/Timeline";
 import { useCaseLink } from "@/lib/caselink/store";
 
 export const Route = createFileRoute("/investigations/$caseId")({
-  head: () => ({
-    meta: [
-      { title: "Investigation Workspace · CASELINK" },
-      {
-        name: "description",
-        content:
-          "Synchronised investigation workspace: interactive evidence timeline, dark tactical map with movement paths, and an explainable AI intelligence panel.",
-      },
-      { property: "og:title", content: "Investigation Workspace · CASELINK" },
-      {
-        property: "og:description",
-        content: "Timeline, tactical map and AI correlation for a single investigation file.",
-      },
-    ],
-  }),
+  head: () => ({ meta: [
+    { title: "Investigation Workspace · CASELINK" },
+    { name: "description", content: "Database-backed investigation workspace with case progress, assigned investigator information and recorded timeline." },
+  ] }),
   component: InvestigationView,
 });
 
@@ -33,155 +19,18 @@ function InvestigationView() {
   const { caseId } = Route.useParams();
   const { getCase, linksFor, cases, casesError, casesLoading, retryCases } = useCaseLink();
   const investigation = getCase(caseId);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [target, setTarget] = useState<DrawerTarget | null>(null);
-
-  if (casesLoading) {
-    return (
-      <Shell title="Loading investigation" subtitle="Database register">
-        <div className="panel p-6 text-center font-mono text-xs text-muted-foreground">
-          Loading database case and related records…
-        </div>
-      </Shell>
-    );
-  }
-
-  if (casesError) {
-    return (
-      <Shell title="Investigation unavailable" subtitle="Database register">
-        <div className="panel flex flex-col items-center gap-3 p-8 text-center">
-          <AlertTriangle className="size-6 text-danger" />
-          <p className="font-mono text-[11px] text-danger">{casesError}</p>
-          <button
-            type="button"
-            onClick={retryCases}
-            className="flex items-center gap-2 rounded-md border border-cyan/50 bg-cyan/10 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-cyan"
-          >
-            <RefreshCw className="size-3" /> Retry
-          </button>
-        </div>
-      </Shell>
-    );
-  }
-
-  if (!investigation) {
-    return (
-      <Shell title="File not found" subtitle="Register">
-        <div className="panel p-6 text-center">
-          <p className="text-sm text-foreground">
-            Investigation {caseId} is not present in the current corpus.
-          </p>
-          <Link
-            to="/investigations"
-            className="mt-3 inline-block font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:underline"
-          >
-            Back to register
-          </Link>
-        </div>
-      </Shell>
-    );
-  }
-
-  const links = linksFor(investigation.id);
-  const highlighted = links.flatMap((l) => l.sharedEvidenceIds);
-
-  const pick = (id: string) => {
-    setSelected(id);
-    setTarget({ kind: "evidence", id });
-  };
-
+  if (casesLoading) return <Shell title="Loading investigation" subtitle="Database register"><div className="panel p-6 text-center font-mono text-xs text-muted-foreground">Loading database case and related records…</div></Shell>;
+  if (casesError) return <Shell title="Investigation unavailable" subtitle="Database register"><div className="panel flex flex-col items-center gap-3 p-8 text-center"><AlertTriangle className="size-6 text-danger" /><p className="font-mono text-[11px] text-danger">{casesError}</p><button type="button" onClick={retryCases} className="flex items-center gap-2 rounded-md border border-cyan/50 bg-cyan/10 px-3 py-2 font-mono text-[10px] uppercase text-cyan"><RefreshCw className="size-3" />Retry</button></div></Shell>;
+  if (!investigation) return <Shell title="File not found" subtitle="Register"><div className="panel p-6 text-center"><p className="text-sm">The requested investigation is not present in the database register.</p><Link to="/investigations" className="mt-3 inline-block font-mono text-[10px] uppercase text-cyan hover:underline">Back to register</Link></div></Shell>;
+  const meaningfulLinks = linksFor(investigation.id).filter((link) => link.confidence >= 60);
+  const actualEvidence = investigation.evidence.filter((item) => item.recordKind !== "timeline");
   return (
-    <Shell
-      title={investigation.title}
-      subtitle={`${investigation.code} · ${investigation.type} · ${investigation.status}`}
-      actions={
-        <div className="flex items-center gap-2">
-          <Link
-            to="/engine"
-            search={{ case: investigation.id }}
-            className="rounded-md border border-cyan/50 bg-cyan/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:bg-cyan/20"
-          >
-            Find Hidden Connections
-          </Link>
-          <button
-            onClick={() => setTarget({ kind: "case", id: investigation.id })}
-            className="rounded-md border border-border px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:border-cyan/50 hover:text-cyan"
-          >
-            Case drawer
-          </button>
-        </div>
-      }
-    >
-      <div className="panel mb-3 flex flex-wrap items-center gap-3 p-3">
-        <PriorityDot priority={investigation.priority} />
-        <Chip tone="cyan">{investigation.subject.name}</Chip>
-        {investigation.subject.vehicle ? <Chip tone="amber">{investigation.subject.vehicle}</Chip> : null}
-        {investigation.subject.phone ? <Chip>{investigation.subject.phone}</Chip> : null}
-        <Chip>{fmtDay(investigation.incidentDate)}</Chip>
-        <Chip>{investigation.lastKnownLocation}</Chip>
-        <Chip tone={links.length ? "amber" : "default"}>{links.length} candidate links</Chip>
-        <Chip>{investigation.evidence.length} evidence</Chip>
-
-<Link
-  to="/evidence"
-  search={{ case: investigation.id,upload:true }}
-  className="ml-auto rounded-md border border-cyan/50 bg-cyan/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:bg-cyan/20"
->
-  <Upload className="mr-1 inline size-3" />
-  Upload evidence
-</Link>
-
-<Link
-  to="/evidence"
-  search={{ case: investigation.id }}
-  className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan hover:underline"
->
-  Manage evidence
-</Link>
-      </div>
-
-      <div className="grid gap-3 xl:grid-cols-[300px_minmax(0,1fr)_340px]">
-        <section className="panel flex max-h-[640px] min-h-0 flex-col overflow-hidden">
-          <SectionTitle right={<Chip>{investigation.evidence.length}</Chip>}>Timeline</SectionTitle>
-          <div className="min-h-0 flex-1 overflow-y-auto px-1.5">
-            <Timeline
-              evidence={investigation.evidence}
-              selectedId={selected}
-              onSelect={pick}
-              highlighted={highlighted}
-            />
-          </div>
-        </section>
-
-        <TacticalMap
-          evidence={investigation.evidence}
-          selectedId={selected}
-          onSelect={pick}
-          highlighted={highlighted}
-          className="min-h-[420px] xl:min-h-[640px]"
-        />
-
-        <AIPanel
-          investigation={investigation}
-          selectedEvidenceId={selected}
-          onSelectEvidence={pick}
-          className="max-h-[640px]"
-        />
-      </div>
-
-      <p className="mt-3 label-xs">
-        {cases.length} files in corpus · timeline and map are synchronised: selecting an event on
-        either surface illuminates the other, the AI panel and the evidence drawer
-      </p>
-
-      <DetailDrawer
-        target={target}
-        onClose={() => setTarget(null)}
-        onSelectEvidence={(id) => {
-          setSelected(id);
-          setTarget({ kind: "evidence", id });
-        }}
-      />
+    <Shell title={investigation.title} subtitle={`${investigation.code} · ${investigation.type} · ${investigation.status}`} actions={<div className="flex flex-wrap gap-2"><Link to="/links" search={{ case: investigation.id, link: undefined }} className="rounded-md border border-cyan/50 bg-cyan/10 px-3 py-1.5 font-mono text-[10px] uppercase text-cyan hover:bg-cyan/20">View Case Connections</Link><Link to="/evidence" search={{ case: investigation.id, upload: false }} className="rounded-md border border-border px-3 py-1.5 font-mono text-[10px] uppercase text-muted-foreground hover:border-cyan/50 hover:text-cyan">Manage Evidence</Link></div>}>
+      <section className="panel mb-3 p-4"><div className="flex flex-wrap items-center gap-3"><PriorityDot priority={investigation.priority} /><span className="font-mono text-xs text-cyan">{investigation.code}</span><span className="text-sm text-muted-foreground">{investigation.type}</span></div><p className="mt-3 max-w-4xl text-sm leading-relaxed text-muted-foreground">{investigation.notes || "No case description recorded."}</p></section>
+      <div className="panel mb-3 flex flex-wrap items-center gap-2 p-3"><Chip>{investigation.priority} priority</Chip><Chip tone="cyan">{investigation.subject.name || "Subject not recorded"}</Chip>{investigation.subject.vehicle ? <Chip tone="amber">{investigation.subject.vehicle}</Chip> : null}{investigation.subject.phone ? <Chip>{investigation.subject.phone}</Chip> : null}<Chip>{fmtDay(investigation.incidentDate)}</Chip><Chip>{investigation.lastKnownLocation || "Location not recorded"}</Chip><Chip tone={meaningfulLinks.length ? "amber" : "default"}>{meaningfulLinks.length} meaningful connections</Chip><Chip>{actualEvidence.length} evidence</Chip></div>
+      <InvestigationOperations caseId={investigation.id} />
+      <section className="panel overflow-hidden"><SectionTitle right={<Chip>{investigation.evidence.length}</Chip>}>Recorded timeline</SectionTitle><div className="px-2 pb-3"><InvestigationTimeline evidence={investigation.evidence} /></div></section>
+      <p className="mt-3 label-xs">Database record · {cases.length} investigations available · Evidence files are managed securely in Evidence Management</p>
     </Shell>
   );
 }

@@ -208,12 +208,13 @@ export async function getEvidenceAccess(): Promise<EvidenceAccess> {
 }
 
 export async function loadEvidenceCaseSummaries(): Promise<EvidenceCaseSummary[]> {
-  const [casesResult, personsResult, evidenceResult] = await Promise.all([
-    supabase.from("cases").select("id, case_no, title, status, investigator_name").order("occurred_at", { ascending: false }),
+  const [casesResult, personsResult, evidenceResult, profilesResult] = await Promise.all([
+    supabase.from("cases").select("id, case_no, title, status, investigator_id").order("occurred_at", { ascending: false }),
     supabase.from("persons").select("case_id, full_name, role_in_case"),
     supabase.from("evidence").select("*").order("created_at", { ascending: false }),
+    supabase.from("profiles").select("id, full_name"),
   ]);
-  const failed = [casesResult, personsResult, evidenceResult].find((result) => result.error)?.error;
+  const failed = [casesResult, personsResult, evidenceResult, profilesResult].find((result) => result.error)?.error;
   if (failed) throw new Error(failed.message);
 
   const personsByCase = new Map<string, EvidenceCasePerson[]>();
@@ -224,6 +225,7 @@ export async function loadEvidenceCaseSummaries(): Promise<EvidenceCaseSummary[]
   for (const evidence of evidenceResult.data ?? []) {
     evidenceByCase.set(evidence.case_id, [...(evidenceByCase.get(evidence.case_id) ?? []), evidence]);
   }
+  const investigatorNames = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile.full_name.trim() || "Name not recorded"]));
 
   return (casesResult.data ?? []).map((caseRow) => {
     const persons = personsByCase.get(caseRow.id) ?? [];
@@ -234,7 +236,7 @@ export async function loadEvidenceCaseSummaries(): Promise<EvidenceCaseSummary[]
       title: caseRow.title,
       primarySubject: subject?.full_name ?? null,
       status: caseRow.status,
-      investigatorName: caseRow.investigator_name,
+      investigatorName: caseRow.investigator_id ? investigatorNames.get(caseRow.investigator_id) ?? "Name not recorded" : null,
       evidence: evidenceByCase.get(caseRow.id) ?? [],
     };
   });
