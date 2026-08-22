@@ -10,6 +10,11 @@ import {
 import type { User } from "@supabase/supabase-js";
 
 import { supabase } from "@/integrations/supabase/client";
+import {
+  isAccountApplicationAuthFlowActive,
+  loadOwnApplicationStatus,
+  type AccountApplication,
+} from "./account-applications.repository";
 
 import {
   createInvestigation as createDatabaseInvestigation,
@@ -34,12 +39,13 @@ const VERDICTS_KEY = "caselink.verdicts.v1";
 const ROLE_SELECTION_KEY = "caselink.auth-role.v1";
 const AUDIT_KEY = "caselink.audit.v1";
 
-export type DatabaseRole = "investigator" | "senior_investigator" | "administrator";
+export type DatabaseRole = "investigator" | "senior_investigator" | "administrator" | "authorized_user";
 
 export const DATABASE_ROLE_TO_ROLE: Record<DatabaseRole, Role> = {
   investigator: "INVESTIGATOR",
   senior_investigator: "SUPERVISOR",
   administrator: "ADMIN",
+  authorized_user: "VIEWER",
 };
 
 export interface FeedItem {
@@ -94,10 +100,11 @@ interface Ctx {
   feed: FeedItem[];
   audit: AuditEntry[];
   session: Session | null;
+  pendingApplication: AccountApplication | null;
+  refreshPendingApplication: () => Promise<AccountApplication | null>;
   can: (p: Permission) => boolean;
   logAudit: (action: string, subject: string, detail: string) => void;
-  signIn: (email: string, password: string, role: DatabaseRole) => Promise<void>;
-  signUp: (email: string, password: string, role: DatabaseRole) => Promise<{ requiresEmailConfirmation: boolean }>;
+  signIn: (email: string, password: string, role: DatabaseRole) => Promise<"approved" | "pending">;
   signOut: () => Promise<void>;
   clearAuthError: () => void;
   createInvestigation: (
@@ -144,7 +151,7 @@ function remove(key: string) {
 }
 
 function isDatabaseRole(value: string | null): value is DatabaseRole {
-  return value === "investigator" || value === "senior_investigator" || value === "administrator";
+  return value === "investigator" || value === "senior_investigator" || value === "administrator" || value === "authorized_user";
 }
 
 function readSelectedRole(): DatabaseRole | undefined {
@@ -195,6 +202,7 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
   const [alertsError, setAlertsError] = useState<string | null>(null);
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({});
   const [session, setSession] = useState<Session | null>(null);
+  const [pendingApplication, setPendingApplication] = useState<AccountApplication | null>(null);
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
 
@@ -202,11 +210,25 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
     try {
       const verified = await loadVerifiedSession(user, selectedRole);
       setSession(verified);
+      setPendingApplication(null);
       setAuthError(null);
       return true;
     } catch (error) {
+      try {
+        const application = await loadOwnApplicationStatus();
+        if (application && application.status !== "VERIFIED_APPROVED") {
+          setSession(null);
+          setPendingApplication(application);
+          setAuthError(null);
+          remove(ROLE_SELECTION_KEY);
+          return true;
+        }
+      } catch {
+        // A missing or inaccessible application is handled as a normal authorization failure.
+      }
       const message = error instanceof Error ? error.message : "Unable to verify account authorization.";
       setSession(null);
+      setPendingApplication(null);
       setAuthError(message);
       remove(ROLE_SELECTION_KEY);
       await supabase.auth.signOut();
@@ -237,6 +259,7 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       window.setTimeout(() => {
         if (!active) return;
+        if (isAccountApplicationAuthFlowActive()) return;
         if (!nextSession?.user) {
           setSession(null);
           return;
@@ -477,49 +500,59 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
     [links],
   );
 
-  const signIn = useCallback(async (email: string, password: string, role: DatabaseRole) => {
+  const signIn = useCallback(async (email: string, password: string, role: DatabaseRole): Promise<"approved" | "pending"> => {
     setAuthError(null);
+    setPendingApplication(null);
     window.localStorage.setItem(ROLE_SELECTION_KEY, role);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       remove(ROLE_SELECTION_KEY);
       throw error;
     }
-    const authorized = await establishSession(data.user, role);
-    if (!authorized) throw new Error("Your account is not authorized for the selected role.");
-  }, [establishSession]);
-
-  const signUp = useCallback(async (email: string, password: string, role: DatabaseRole) => {
-    if (role !== "investigator") {
-      throw new Error("An administrator must first assign the Senior Investigator or Administrator role.");
-    }
-    setAuthError(null);
-    window.localStorage.setItem(ROLE_SELECTION_KEY, "investigator");
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: email.split("@")[0] } },
-    });
-    if (error) {
+    try {
+      const verified = await loadVerifiedSession(data.user, role);
+      setSession(verified);
+      setAuthError(null);
+      return "approved";
+    } catch (authorizationError) {
+      try {
+        const application = await loadOwnApplicationStatus();
+        if (application && application.status !== "VERIFIED_APPROVED") {
+          remove(ROLE_SELECTION_KEY);
+          setSession(null);
+          setPendingApplication(application);
+          setAuthError(null);
+          return "pending";
+        }
+      } catch {
+        // Continue with the standard authorization failure and secure sign-out.
+      }
       remove(ROLE_SELECTION_KEY);
-      throw error;
+      setSession(null);
+      setPendingApplication(null);
+      await supabase.auth.signOut();
+      const message = authorizationError instanceof Error ? authorizationError.message : "Your account authorization could not be verified.";
+      setAuthError(message);
+      throw new Error(message);
     }
-    if (data.session && data.user) {
-      const authorized = await establishSession(data.user, "investigator");
-      if (!authorized) throw new Error("Your account is not authorized for the selected role.");
-    }
-    return { requiresEmailConfirmation: !data.session };
-  }, [establishSession]);
+  }, []);
 
   const signOut = useCallback(async () => {
     logAudit("Signed out", "Session", "Secure session closed");
     const { error } = await supabase.auth.signOut();
     setSession(null);
+    setPendingApplication(null);
     remove(ROLE_SELECTION_KEY);
     if (error) throw error;
   }, [logAudit]);
 
   const clearAuthError = useCallback(() => setAuthError(null), []);
+
+  const refreshPendingApplication = useCallback(async () => {
+    const application = await loadOwnApplicationStatus();
+    setPendingApplication(application);
+    return application;
+  }, []);
 
   const createInvestigation = useCallback(async (input: CreateInvestigationInput) => {
     if (!session) throw new Error("You must be signed in to create an investigation.");
@@ -559,10 +592,11 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
       feed,
       audit,
       session,
+      pendingApplication,
+      refreshPendingApplication,
       can,
       logAudit,
       signIn,
-      signUp,
       signOut,
       clearAuthError,
       createInvestigation,
@@ -597,11 +631,12 @@ export function CaseLinkProvider({ children }: { children: ReactNode }) {
       feed,
       audit,
       session,
+      pendingApplication,
+      refreshPendingApplication,
       can,
       logAudit,
 
       signIn,
-      signUp,
       signOut,
       clearAuthError,
       createInvestigation,

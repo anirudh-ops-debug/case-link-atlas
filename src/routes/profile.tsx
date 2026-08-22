@@ -1,8 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Chip, SectionTitle } from "@/components/caselink/bits";
 import { Shell } from "@/components/caselink/Shell";
+import { loadAdministratorAccess } from "@/lib/caselink/account-applications.repository";
 import { useCaseLink } from "@/lib/caselink/store";
 
 export const Route = createFileRoute("/profile")({
@@ -23,6 +26,15 @@ export const Route = createFileRoute("/profile")({
 
 function ProfilePage() {
   const { session, cases, links, allEvidence, resetDemo } = useCaseLink();
+  const [isAdministrator, setIsAdministrator] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void loadAdministratorAccess()
+      .then((access) => { if (active) setIsAdministrator(access.isAdministrator); })
+      .catch(() => { if (active) setIsAdministrator(false); });
+    return () => { active = false; };
+  }, [session?.userId]);
 
   const rows: Array<[string, string]> = [
     ["Officer", session?.name ?? "—"],
@@ -53,6 +65,7 @@ function ProfilePage() {
         <section className="panel h-fit overflow-hidden">
           <SectionTitle>Governance</SectionTitle>
           <div className="space-y-2.5 p-3 text-[12px] leading-relaxed text-muted-foreground">
+            {isAdministrator ? <Link to="/admin/applications" className="flex items-center justify-center gap-2 rounded-md border border-cyan/50 bg-cyan/10 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan"><ShieldCheck className="size-4" />Account Applications</Link> : null}
             <p>
               CASELINK is decision-support only. Every AI correlation is advisory, fully explained
               and requires a human verdict before it can influence a case file's status.

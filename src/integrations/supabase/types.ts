@@ -692,27 +692,48 @@ export type Database = {
       }
       profiles: {
         Row: {
+          approval_status: Database["public"]["Enums"]["application_status"]
+          awards: string[]
           agency_id: string | null
           badge_no: string | null
+          contact_number: string | null
           created_at: string
           full_name: string
           id: string
+          professional_bio: string | null
+          rank_designation: string | null
+          service_start_date: string | null
+          specialization: string | null
           unit: string | null
         }
         Insert: {
+          approval_status?: Database["public"]["Enums"]["application_status"]
+          awards?: string[]
           agency_id?: string | null
           badge_no?: string | null
+          contact_number?: string | null
           created_at?: string
           full_name?: string
           id: string
+          professional_bio?: string | null
+          rank_designation?: string | null
+          service_start_date?: string | null
+          specialization?: string | null
           unit?: string | null
         }
         Update: {
+          approval_status?: Database["public"]["Enums"]["application_status"]
+          awards?: string[]
           agency_id?: string | null
           badge_no?: string | null
+          contact_number?: string | null
           created_at?: string
           full_name?: string
           id?: string
+          professional_bio?: string | null
+          rank_designation?: string | null
+          service_start_date?: string | null
+          specialization?: string | null
           unit?: string | null
         }
         Relationships: [
@@ -721,6 +742,102 @@ export type Database = {
             columns: ["agency_id"]
             isOneToOne: false
             referencedRelation: "agencies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      account_applications: {
+        Row: {
+          agency_department: string
+          attempt_count: number
+          awards: string[]
+          contact_number: string
+          employee_id_number: string
+          full_legal_name: string
+          id: string
+          last_attempt_at: string
+          official_id_mime_type: string | null
+          official_id_original_filename: string | null
+          official_id_path: string | null
+          professional_bio: string | null
+          rank_designation: string
+          requested_role: Database["public"]["Enums"]["application_role"]
+          review_notes: string | null
+          reviewed_at: string | null
+          reviewer_id: string | null
+          service_start_date: string
+          specialization: string
+          status: Database["public"]["Enums"]["application_status"]
+          submitted_at: string
+          updated_at: string
+          user_id: string
+          work_email: string
+        }
+        Insert: {
+          agency_department: string
+          attempt_count?: number
+          awards?: string[]
+          contact_number: string
+          employee_id_number: string
+          full_legal_name: string
+          id?: string
+          last_attempt_at?: string
+          official_id_mime_type?: string | null
+          official_id_original_filename?: string | null
+          official_id_path?: string | null
+          professional_bio?: string | null
+          rank_designation: string
+          requested_role: Database["public"]["Enums"]["application_role"]
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewer_id?: string | null
+          service_start_date: string
+          specialization: string
+          status?: Database["public"]["Enums"]["application_status"]
+          submitted_at?: string
+          updated_at?: string
+          user_id: string
+          work_email: string
+        }
+        Update: {
+          agency_department?: string
+          attempt_count?: number
+          awards?: string[]
+          contact_number?: string
+          employee_id_number?: string
+          full_legal_name?: string
+          id?: string
+          last_attempt_at?: string
+          official_id_mime_type?: string | null
+          official_id_original_filename?: string | null
+          official_id_path?: string | null
+          professional_bio?: string | null
+          rank_designation?: string
+          requested_role?: Database["public"]["Enums"]["application_role"]
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewer_id?: string | null
+          service_start_date?: string
+          specialization?: string
+          status?: Database["public"]["Enums"]["application_status"]
+          submitted_at?: string
+          updated_at?: string
+          user_id?: string
+          work_email?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_applications_reviewer_id_fkey"
+            columns: ["reviewer_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_applications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -916,6 +1033,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      attach_application_document: {
+        Args: { _mime_type: string; _original_filename: string; _storage_path: string }
+        Returns: Database["public"]["Tables"]["account_applications"]["Row"]
+      }
       can_verify: { Args: { _user_id: string }; Returns: boolean }
       has_role: {
         Args: {
@@ -928,13 +1049,25 @@ export type Database = {
         Args: { _evidence_id: string }
         Returns: Database["public"]["Tables"]["evidence"]["Row"]
       }
+      is_approved_user: { Args: { _user_id: string }; Returns: boolean }
+      is_case_writer: { Args: { _user_id: string }; Returns: boolean }
+      review_account_application: {
+        Args: {
+          _application_id: string
+          _decision: Database["public"]["Enums"]["application_status"]
+          _notes?: string | null
+        }
+        Returns: Database["public"]["Tables"]["account_applications"]["Row"]
+      }
       withdraw_evidence: {
         Args: { _evidence_id: string; _reason: string }
         Returns: Database["public"]["Tables"]["evidence"]["Row"]
       }
     }
     Enums: {
-      app_role: "investigator" | "senior_investigator" | "administrator"
+      app_role: "investigator" | "senior_investigator" | "administrator" | "authorized_user"
+      application_role: "investigator" | "senior_investigator" | "administrator" | "authorized_user"
+      application_status: "PENDING_DOCUMENT_REVIEW" | "PENDING_ADMIN_APPROVAL" | "VERIFIED_APPROVED" | "FAILED" | "REJECTED" | "MORE_INFORMATION_REQUIRED"
       case_priority: "Critical" | "High" | "Medium" | "Low"
       case_status: "Active" | "Under Review" | "Escalated" | "Closed"
       connection_verdict: "pending" | "confirmed" | "rejected" | "inconclusive"
@@ -1065,7 +1198,9 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["investigator", "senior_investigator", "administrator"],
+      app_role: ["investigator", "senior_investigator", "administrator", "authorized_user"],
+      application_role: ["investigator", "senior_investigator", "administrator", "authorized_user"],
+      application_status: ["PENDING_DOCUMENT_REVIEW", "PENDING_ADMIN_APPROVAL", "VERIFIED_APPROVED", "FAILED", "REJECTED", "MORE_INFORMATION_REQUIRED"],
       case_priority: ["Critical", "High", "Medium", "Low"],
       case_status: ["Active", "Under Review", "Escalated", "Closed"],
       connection_verdict: ["pending", "confirmed", "rejected", "inconclusive"],
